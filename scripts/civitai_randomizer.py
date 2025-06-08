@@ -107,7 +107,19 @@ class CivitaiRandomizerScript(scripts.Script):
                         info="Use only custom prompts and LORA randomization"
                     )
                 
-                # NSFW Filtering
+                # Core Functionality - API Key and Fetch (moved from Advanced section)
+                with gr.Row():
+                    api_key_input = gr.Textbox("", label="Civitai API Key", type="password", placeholder="Enter your Civitai API key")
+                    test_api_btn = gr.Button("Test API", variant="secondary", size="sm")
+                
+                with gr.Row():
+                    fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg")
+                    clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm")
+                
+                with gr.Row():
+                    cache_status = gr.HTML("Cached prompts: 0")
+                    
+                # Filtering Controls
                 with gr.Row():
                     nsfw_filter = gr.Dropdown(
                         label="NSFW Content Filter",
@@ -216,12 +228,9 @@ class CivitaiRandomizerScript(scripts.Script):
                             info="This will be combined with Civitai negative prompts"
                         )
                 
-                # Status and Cache Management
+                # Advanced Controls (simplified)
                 with gr.Accordion("Advanced Controls", open=False):
-                    with gr.Row():
-                        cache_status = gr.HTML("Cached prompts: 0")
-                        clear_cache_btn = gr.Button("Clear Cache", variant="secondary", size="sm")
-                        fetch_prompts_btn = gr.Button("Fetch New Prompts", variant="primary", size="sm")
+                    gr.HTML("Advanced settings and debugging tools")
                 
                 # Event handlers
                 def test_api_connection(api_key):
@@ -523,47 +532,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 )
                 print(f"[Civitai Randomizer] ✅ Test bridge button bound successfully")
                 
-                # Add a simple test button to verify JavaScript works
-                test_status = gr.Textbox(visible=False)
-                test_btn = gr.Button("🧪 Test JS (Static)", variant="secondary")
-                test_btn.click(
-                    lambda: "Test completed",
-                    outputs=[test_status],
-                    _js="""
-                    function() {
-                        console.log('[Civitai Randomizer] Test button clicked!');
-                        
-                        setTimeout(() => {
-                            let positiveField = document.querySelector('#txt2img_prompt textarea');
-                            let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
-                            
-                            if (!positiveField) {
-                                positiveField = document.querySelector('#img2img_prompt textarea');
-                            }
-                            if (!negativeField) {
-                                negativeField = document.querySelector('#img2img_neg_prompt textarea');
-                            }
-                            
-                            if (positiveField && negativeField) {
-                                positiveField.value = 'TEST POSITIVE PROMPT - JavaScript is working!';
-                                negativeField.value = 'TEST NEGATIVE PROMPT - JavaScript is working!';
-                                
-                                ['input', 'change'].forEach(eventType => {
-                                    positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
-                                    negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
-                                });
-                                
-                                console.log('[Civitai Randomizer] ✅ Test fields populated successfully!');
-                            } else {
-                                console.log('[Civitai Randomizer] ❌ Could not find prompt fields');
-                            }
-                        }, 100);
-                        
-                        return [];
-                    }
-                    """
-                )
-                print(f"[Civitai Randomizer] ✅ Test button added successfully")
+
         
         # Store component references for external access
         script_callbacks.on_ui_tabs(lambda: self.register_main_ui_components())
