@@ -358,16 +358,174 @@ class CivitaiRandomizerScript(scripts.Script):
                 outputs=[prompt_queue_status],
                 _js="""
                 function(custom_start, custom_end, custom_negative) {
-                    console.log('[Civitai Randomizer] JavaScript populate function called');
+                    console.log('[Civitai Randomizer] === JavaScript Field Detection Started ===');
                     
-                    // The function will return [status, positive, negative] but we need to get them
-                    // from the Python function. For now, we'll use a different approach.
+                    // Wait a bit for Python function to complete
+                    setTimeout(() => {
+                        console.log('[Civitai Randomizer] Searching for prompt fields...');
+                        
+                        // Strategy 1: Direct ID selectors (most likely)
+                        let positiveField = document.querySelector('#txt2img_prompt textarea');
+                        let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
+                        
+                        console.log('[Civitai Randomizer] Strategy 1 - Direct selectors:');
+                        console.log('  - txt2img_prompt:', !!positiveField);
+                        console.log('  - txt2img_neg_prompt:', !!negativeField);
+                        
+                        // Strategy 2: Try img2img if txt2img not found
+                        if (!positiveField) {
+                            positiveField = document.querySelector('#img2img_prompt textarea');
+                            console.log('  - img2img_prompt:', !!positiveField);
+                        }
+                        if (!negativeField) {
+                            negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                            console.log('  - img2img_neg_prompt:', !!negativeField);
+                        }
+                        
+                        // Strategy 3: Find by container structure
+                        if (!positiveField || !negativeField) {
+                            console.log('[Civitai Randomizer] Strategy 3 - Container search:');
+                            
+                            // Look for elements with these IDs (without textarea)
+                            const txt2imgContainer = document.querySelector('#txt2img_prompt');
+                            const txt2imgNegContainer = document.querySelector('#txt2img_neg_prompt');
+                            
+                            if (txt2imgContainer && !positiveField) {
+                                positiveField = txt2imgContainer.querySelector('textarea');
+                                console.log('  - Found positive via container:', !!positiveField);
+                            }
+                            
+                            if (txt2imgNegContainer && !negativeField) {
+                                negativeField = txt2imgNegContainer.querySelector('textarea');
+                                console.log('  - Found negative via container:', !!negativeField);
+                            }
+                        }
+                        
+                        // Strategy 4: Comprehensive textarea search with detailed logging
+                        if (!positiveField || !negativeField) {
+                            console.log('[Civitai Randomizer] Strategy 4 - Full textarea analysis:');
+                            const allTextareas = document.querySelectorAll('textarea');
+                            console.log(`Found ${allTextareas.length} total textareas`);
+                            
+                            allTextareas.forEach((textarea, index) => {
+                                const id = textarea.id || 'no-id';
+                                const placeholder = textarea.placeholder || 'no-placeholder';
+                                const parentId = textarea.parentElement?.id || 'no-parent-id';
+                                const label = textarea.parentElement?.querySelector('label')?.textContent || 'no-label';
+                                const value = textarea.value?.substring(0, 30) || 'empty';
+                                
+                                console.log(`  [${index}] ID: "${id}", Parent: "${parentId}", Label: "${label}"`);
+                                console.log(`       Placeholder: "${placeholder}", Value: "${value}"`);
+                                
+                                // Try to identify by placeholder or label content
+                                const isPositive = placeholder.toLowerCase().includes('prompt') && 
+                                                 !placeholder.toLowerCase().includes('negative') ||
+                                                 label.toLowerCase().includes('prompt') && 
+                                                 !label.toLowerCase().includes('negative');
+                                                 
+                                const isNegative = placeholder.toLowerCase().includes('negative') ||
+                                                 label.toLowerCase().includes('negative');
+                                
+                                if (isPositive && !positiveField) {
+                                    positiveField = textarea;
+                                    console.log(`       *** IDENTIFIED AS POSITIVE FIELD ***`);
+                                }
+                                
+                                if (isNegative && !negativeField) {
+                                    negativeField = textarea;
+                                    console.log(`       *** IDENTIFIED AS NEGATIVE FIELD ***`);
+                                }
+                            });
+                        }
+                        
+                        // Strategy 5: Look for common Gradio patterns
+                        if (!positiveField || !negativeField) {
+                            console.log('[Civitai Randomizer] Strategy 5 - Gradio patterns:');
+                            
+                            // Look for gradio-textbox containers
+                            const gradioTextboxes = document.querySelectorAll('.gradio-textbox textarea, [data-testid="textbox"] textarea');
+                            console.log(`Found ${gradioTextboxes.length} gradio textboxes`);
+                            
+                            gradioTextboxes.forEach((textarea, index) => {
+                                const container = textarea.closest('.gradio-textbox') || textarea.closest('[data-testid="textbox"]');
+                                const labelElement = container?.querySelector('label') || 
+                                                   container?.previousElementSibling?.querySelector('label');
+                                const labelText = labelElement?.textContent || '';
+                                
+                                console.log(`  Gradio [${index}]: Label: "${labelText}"`);
+                                
+                                if (labelText.toLowerCase().includes('prompt') && !labelText.toLowerCase().includes('negative') && !positiveField) {
+                                    positiveField = textarea;
+                                    console.log(`       *** IDENTIFIED AS POSITIVE (Gradio) ***`);
+                                }
+                                
+                                if (labelText.toLowerCase().includes('negative') && !negativeField) {
+                                    negativeField = textarea;
+                                    console.log(`       *** IDENTIFIED AS NEGATIVE (Gradio) ***`);
+                                }
+                            });
+                        }
+                        
+                        // Final result and action
+                        console.log('[Civitai Randomizer] === Detection Results ===');
+                        console.log('Positive field found:', !!positiveField);
+                        console.log('Negative field found:', !!negativeField);
+                        
+                        if (positiveField && negativeField) {
+                            console.log('[Civitai Randomizer] SUCCESS! Updating fields...');
+                            
+                            // Store original values for comparison
+                            const originalPositive = positiveField.value;
+                            const originalNegative = negativeField.value;
+                            
+                            // Update with test content
+                            positiveField.value = '🎲 Civitai Test: JavaScript field update working! This text should appear in the main prompt field.';
+                            negativeField.value = '🎲 Civitai Test: Negative field update working! This should appear in the negative prompt field.';
+                            
+                            // Dispatch multiple events to ensure Gradio recognizes the change
+                            const events = ['input', 'change', 'blur'];
+                            events.forEach(eventType => {
+                                positiveField.dispatchEvent(new Event(eventType, {bubbles: true, cancelable: true}));
+                                negativeField.dispatchEvent(new Event(eventType, {bubbles: true, cancelable: true}));
+                            });
+                            
+                            // Verify the change took effect
+                            setTimeout(() => {
+                                const newPositive = positiveField.value;
+                                const newNegative = negativeField.value;
+                                
+                                console.log('[Civitai Randomizer] === Update Verification ===');
+                                console.log('Positive updated:', newPositive !== originalPositive);
+                                console.log('Negative updated:', newNegative !== originalNegative);
+                                console.log('Positive value:', newPositive.substring(0, 50));
+                                console.log('Negative value:', newNegative.substring(0, 50));
+                                
+                                if (newPositive !== originalPositive && newNegative !== originalNegative) {
+                                    console.log('[Civitai Randomizer] ✅ FIELD UPDATES SUCCESSFUL!');
+                                } else {
+                                    console.log('[Civitai Randomizer] ⚠️ Field updates may not have persisted');
+                                }
+                            }, 100);
+                            
+                        } else {
+                            console.log('[Civitai Randomizer] ❌ FAILED to find prompt fields');
+                            console.log('This may be due to:');
+                            console.log('1. Different Forge version with changed DOM structure');
+                            console.log('2. Fields not yet loaded when script runs');
+                            console.log('3. Non-standard field configuration');
+                            
+                            alert('Could not find main prompt fields. Please check the browser console (F12) for detailed field detection information.');
+                        }
+                        
+                        console.log('[Civitai Randomizer] === JavaScript Detection Complete ===');
+                        
+                    }, 500);
                     
-                    // Store inputs for return (required by Gradio)
                     return [custom_start, custom_end, custom_negative];
                 }
                 """
             )
+            
             print(f"[Civitai Randomizer] Button bound with JavaScript approach")
             
             # Add JavaScript button logic (button was already created in UI above)
@@ -382,7 +540,9 @@ class CivitaiRandomizerScript(scripts.Script):
                     self.last_populated_positive = positive
                     self.last_populated_negative = negative
                     print(f"[Civitai Randomizer] Stored prompts for JavaScript access")
-                    return f"Generated prompts - check JavaScript console"
+                    print(f"  Positive: {positive[:50]}...")
+                    print(f"  Negative: {negative[:50]}...")
+                    return f"Generated prompts - check JavaScript console and main fields"
                 else:
                     return "No prompts available"
             
@@ -392,51 +552,167 @@ class CivitaiRandomizerScript(scripts.Script):
                 outputs=[prompt_queue_status],
                 _js="""
                 function(custom_start, custom_end, custom_negative) {
-                    console.log('[Civitai Randomizer] JavaScript-only populate triggered');
+                    console.log('[Civitai Randomizer] === JavaScript Field Detection Started ===');
                     
                     // Wait a bit for Python function to complete
                     setTimeout(() => {
-                        // Try to find the main prompt fields using various selectors
+                        console.log('[Civitai Randomizer] Searching for prompt fields...');
+                        
+                        // Strategy 1: Direct ID selectors (most likely)
                         let positiveField = document.querySelector('#txt2img_prompt textarea');
                         let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
                         
-                        // If txt2img fields not found, try img2img
+                        console.log('[Civitai Randomizer] Strategy 1 - Direct selectors:');
+                        console.log('  - txt2img_prompt:', !!positiveField);
+                        console.log('  - txt2img_neg_prompt:', !!negativeField);
+                        
+                        // Strategy 2: Try img2img if txt2img not found
                         if (!positiveField) {
                             positiveField = document.querySelector('#img2img_prompt textarea');
+                            console.log('  - img2img_prompt:', !!positiveField);
                         }
                         if (!negativeField) {
                             negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                            console.log('  - img2img_neg_prompt:', !!negativeField);
                         }
                         
-                        // Try alternative selectors if still not found
+                        // Strategy 3: Find by container structure
                         if (!positiveField || !negativeField) {
+                            console.log('[Civitai Randomizer] Strategy 3 - Container search:');
+                            
+                            // Look for elements with these IDs (without textarea)
+                            const txt2imgContainer = document.querySelector('#txt2img_prompt');
+                            const txt2imgNegContainer = document.querySelector('#txt2img_neg_prompt');
+                            
+                            if (txt2imgContainer && !positiveField) {
+                                positiveField = txt2imgContainer.querySelector('textarea');
+                                console.log('  - Found positive via container:', !!positiveField);
+                            }
+                            
+                            if (txt2imgNegContainer && !negativeField) {
+                                negativeField = txt2imgNegContainer.querySelector('textarea');
+                                console.log('  - Found negative via container:', !!negativeField);
+                            }
+                        }
+                        
+                        // Strategy 4: Comprehensive textarea search with detailed logging
+                        if (!positiveField || !negativeField) {
+                            console.log('[Civitai Randomizer] Strategy 4 - Full textarea analysis:');
                             const allTextareas = document.querySelectorAll('textarea');
-                            console.log('[Civitai Randomizer] Found textareas:', allTextareas.length);
+                            console.log(`Found ${allTextareas.length} total textareas`);
                             
                             allTextareas.forEach((textarea, index) => {
-                                const placeholder = textarea.placeholder || '';
-                                const label = textarea.parentElement?.querySelector('label')?.textContent || '';
-                                console.log(`Textarea ${index}: placeholder="${placeholder}", label="${label}"`);
+                                const id = textarea.id || 'no-id';
+                                const placeholder = textarea.placeholder || 'no-placeholder';
+                                const parentId = textarea.parentElement?.id || 'no-parent-id';
+                                const label = textarea.parentElement?.querySelector('label')?.textContent || 'no-label';
+                                const value = textarea.value?.substring(0, 30) || 'empty';
+                                
+                                console.log(`  [${index}] ID: "${id}", Parent: "${parentId}", Label: "${label}"`);
+                                console.log(`       Placeholder: "${placeholder}", Value: "${value}"`);
+                                
+                                // Try to identify by placeholder or label content
+                                const isPositive = placeholder.toLowerCase().includes('prompt') && 
+                                                 !placeholder.toLowerCase().includes('negative') ||
+                                                 label.toLowerCase().includes('prompt') && 
+                                                 !label.toLowerCase().includes('negative');
+                                                 
+                                const isNegative = placeholder.toLowerCase().includes('negative') ||
+                                                 label.toLowerCase().includes('negative');
+                                
+                                if (isPositive && !positiveField) {
+                                    positiveField = textarea;
+                                    console.log(`       *** IDENTIFIED AS POSITIVE FIELD ***`);
+                                }
+                                
+                                if (isNegative && !negativeField) {
+                                    negativeField = textarea;
+                                    console.log(`       *** IDENTIFIED AS NEGATIVE FIELD ***`);
+                                }
                             });
                         }
                         
-                        if (positiveField && negativeField) {
-                            console.log('[Civitai Randomizer] Found prompt fields! Updating...');
+                        // Strategy 5: Look for common Gradio patterns
+                        if (!positiveField || !negativeField) {
+                            console.log('[Civitai Randomizer] Strategy 5 - Gradio patterns:');
                             
-                            // Use the last generated prompts
-                            positiveField.value = 'Test positive prompt from Civitai Randomizer - JS working!';
-                            negativeField.value = 'Test negative prompt from Civitai Randomizer - JS working!';
+                            // Look for gradio-textbox containers
+                            const gradioTextboxes = document.querySelectorAll('.gradio-textbox textarea, [data-testid="textbox"] textarea');
+                            console.log(`Found ${gradioTextboxes.length} gradio textboxes`);
                             
-                            // Dispatch events to notify Gradio of changes
-                            positiveField.dispatchEvent(new Event('input', {bubbles: true}));
-                            negativeField.dispatchEvent(new Event('input', {bubbles: true}));
-                            
-                            console.log('[Civitai Randomizer] Successfully updated prompt fields!');
-                        } else {
-                            console.log('[Civitai Randomizer] Could not find prompt fields');
-                            const message = 'Could not find main prompt fields. Check browser console for field detection details.';
-                            alert(message);
+                            gradioTextboxes.forEach((textarea, index) => {
+                                const container = textarea.closest('.gradio-textbox') || textarea.closest('[data-testid="textbox"]');
+                                const labelElement = container?.querySelector('label') || 
+                                                   container?.previousElementSibling?.querySelector('label');
+                                const labelText = labelElement?.textContent || '';
+                                
+                                console.log(`  Gradio [${index}]: Label: "${labelText}"`);
+                                
+                                if (labelText.toLowerCase().includes('prompt') && !labelText.toLowerCase().includes('negative') && !positiveField) {
+                                    positiveField = textarea;
+                                    console.log(`       *** IDENTIFIED AS POSITIVE (Gradio) ***`);
+                                }
+                                
+                                if (labelText.toLowerCase().includes('negative') && !negativeField) {
+                                    negativeField = textarea;
+                                    console.log(`       *** IDENTIFIED AS NEGATIVE (Gradio) ***`);
+                                }
+                            });
                         }
+                        
+                        // Final result and action
+                        console.log('[Civitai Randomizer] === Detection Results ===');
+                        console.log('Positive field found:', !!positiveField);
+                        console.log('Negative field found:', !!negativeField);
+                        
+                        if (positiveField && negativeField) {
+                            console.log('[Civitai Randomizer] SUCCESS! Updating fields...');
+                            
+                            // Store original values for comparison
+                            const originalPositive = positiveField.value;
+                            const originalNegative = negativeField.value;
+                            
+                            // Update with test content
+                            positiveField.value = '🎲 Civitai Test: JavaScript field update working! This text should appear in the main prompt field.';
+                            negativeField.value = '🎲 Civitai Test: Negative field update working! This should appear in the negative prompt field.';
+                            
+                            // Dispatch multiple events to ensure Gradio recognizes the change
+                            const events = ['input', 'change', 'blur'];
+                            events.forEach(eventType => {
+                                positiveField.dispatchEvent(new Event(eventType, {bubbles: true, cancelable: true}));
+                                negativeField.dispatchEvent(new Event(eventType, {bubbles: true, cancelable: true}));
+                            });
+                            
+                            // Verify the change took effect
+                            setTimeout(() => {
+                                const newPositive = positiveField.value;
+                                const newNegative = negativeField.value;
+                                
+                                console.log('[Civitai Randomizer] === Update Verification ===');
+                                console.log('Positive updated:', newPositive !== originalPositive);
+                                console.log('Negative updated:', newNegative !== originalNegative);
+                                console.log('Positive value:', newPositive.substring(0, 50));
+                                console.log('Negative value:', newNegative.substring(0, 50));
+                                
+                                if (newPositive !== originalPositive && newNegative !== originalNegative) {
+                                    console.log('[Civitai Randomizer] ✅ FIELD UPDATES SUCCESSFUL!');
+                                } else {
+                                    console.log('[Civitai Randomizer] ⚠️ Field updates may not have persisted');
+                                }
+                            }, 100);
+                            
+                        } else {
+                            console.log('[Civitai Randomizer] ❌ FAILED to find prompt fields');
+                            console.log('This may be due to:');
+                            console.log('1. Different Forge version with changed DOM structure');
+                            console.log('2. Fields not yet loaded when script runs');
+                            console.log('3. Non-standard field configuration');
+                            
+                            alert('Could not find main prompt fields. Please check the browser console (F12) for detailed field detection information.');
+                        }
+                        
+                        console.log('[Civitai Randomizer] === JavaScript Detection Complete ===');
+                        
                     }, 500);
                     
                     return [custom_start, custom_end, custom_negative];
