@@ -25,18 +25,14 @@ class CivitaiRandomizerScript(scripts.Script):
         self.last_populated_positive = ""
         self.last_populated_negative = ""
         
-        # Component references for main UI fields - THE KEY SOLUTION
+        # Component references for main UI fields - will be set later
         self.txt2img_positive_prompt_ref = None
         self.txt2img_negative_prompt_ref = None
         self.img2img_positive_prompt_ref = None  
         self.img2img_negative_prompt_ref = None
         
-        # Register callbacks to capture main UI components using on_after_component
-        # This is the proper way according to the research document
-        self.on_after_component(self._capture_txt2img_positive, elem_id="txt2img_prompt")
-        self.on_after_component(self._capture_txt2img_negative, elem_id="txt2img_neg_prompt")
-        self.on_after_component(self._capture_img2img_positive, elem_id="img2img_prompt")
-        self.on_after_component(self._capture_img2img_negative, elem_id="img2img_neg_prompt")
+        # Remove problematic on_after_component calls for now
+        # We'll try a different approach
         
         self.load_config()
         
@@ -44,8 +40,38 @@ class CivitaiRandomizerScript(scripts.Script):
         return "Civitai Randomizer"
 
     def show(self, is_img2img):
-        # Return AlwaysVisible to ensure our component capture callbacks run during UI build
+        # Return AlwaysVisible to ensure our extension loads
         return scripts.AlwaysVisible
+
+    def try_get_main_ui_components(self):
+        """Try to get main UI components through various methods"""
+        try:
+            # Method 1: Try to access through shared modules
+            import modules.ui as ui
+            if hasattr(ui, 'txt2img_prompt'):
+                self.txt2img_positive_prompt_ref = ui.txt2img_prompt
+                print(f"[Civitai Randomizer] Found txt2img_prompt via modules.ui")
+            
+            if hasattr(ui, 'txt2img_neg_prompt'):
+                self.txt2img_negative_prompt_ref = ui.txt2img_neg_prompt
+                print(f"[Civitai Randomizer] Found txt2img_neg_prompt via modules.ui")
+                
+            # Method 2: Try shared state
+            if hasattr(shared, 'ui_components'):
+                components = shared.ui_components
+                if 'txt2img_prompt' in components:
+                    self.txt2img_positive_prompt_ref = components['txt2img_prompt']
+                if 'txt2img_neg_prompt' in components:
+                    self.txt2img_negative_prompt_ref = components['txt2img_neg_prompt']
+                print(f"[Civitai Randomizer] Checked shared.ui_components")
+                    
+        except Exception as e:
+            print(f"[Civitai Randomizer] Could not access main UI components: {e}")
+            return False
+            
+        success = bool(self.txt2img_positive_prompt_ref and self.txt2img_negative_prompt_ref)
+        print(f"[Civitai Randomizer] Component access successful: {success}")
+        return success
 
     def ui(self, is_img2img):
         with gr.Group():
@@ -217,15 +243,13 @@ class CivitaiRandomizerScript(scripts.Script):
                         print(f"  Positive: {positive[:100]}...")
                         print(f"  Negative: {negative[:100]}...")
                         
-                        # Return gr.update() objects for each field based on current tab
-                        if is_img2img:
-                            # img2img tab
-                            positive_update = gr.Textbox.update(value=positive) if self.img2img_positive_prompt_ref else None
-                            negative_update = gr.Textbox.update(value=negative) if self.img2img_negative_prompt_ref else None
-                        else:
-                            # txt2img tab  
-                            positive_update = gr.Textbox.update(value=positive) if self.txt2img_positive_prompt_ref else None
-                            negative_update = gr.Textbox.update(value=negative) if self.txt2img_negative_prompt_ref else None
+                        # Store for potential later use
+                        self.last_populated_positive = positive
+                        self.last_populated_negative = negative
+                        
+                        # Return gr.update() objects for the main fields
+                        positive_update = gr.Textbox.update(value=positive)
+                        negative_update = gr.Textbox.update(value=negative)
                         
                         remaining = len(self.prompt_queue) - self.queue_index
                         status_msg = f"✅ Prompts populated! Queue: {remaining} remaining"
@@ -282,31 +306,55 @@ class CivitaiRandomizerScript(scripts.Script):
         # Store component references for external access
         script_callbacks.on_ui_tabs(lambda: self.register_main_ui_components())
         
-        # Add button bindings using proper Gradio outputs
-        # Determine which components to target based on current tab
-        if is_img2img:
-            target_positive = self.img2img_positive_prompt_ref  
-            target_negative = self.img2img_negative_prompt_ref
-        else:
-            target_positive = self.txt2img_positive_prompt_ref
-            target_negative = self.txt2img_negative_prompt_ref
+        # Try to get main UI components 
+        components_found = self.try_get_main_ui_components()
         
-        # Only bind if we have the component references
-        if target_positive and target_negative:
-            populate_btn.click(
-                populate_prompt_fields,
-                inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-                outputs=[prompt_queue_status, target_positive, target_negative]
-            )
-            print(f"[Civitai Randomizer] Button bound to {'img2img' if is_img2img else 'txt2img'} components")
+        # Add button bindings - try both approaches
+        if components_found and not is_img2img:
+            # We have component references, use proper Gradio outputs
+            try:
+                populate_btn.click(
+                    populate_prompt_fields,
+                    inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+                    outputs=[prompt_queue_status, self.txt2img_positive_prompt_ref, self.txt2img_negative_prompt_ref]
+                )
+                print(f"[Civitai Randomizer] Button bound to main UI components successfully")
+            except Exception as e:
+                print(f"[Civitai Randomizer] Failed to bind to main components: {e}")
+                # Fallback to status-only binding
+                populate_btn.click(
+                    populate_prompt_fields,
+                    inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+                    outputs=[prompt_queue_status]
+                )
         else:
-            # Fallback binding without main field updates
+            # Fallback: just update status, no main field updates yet
+            def populate_fallback(custom_start, custom_end, custom_negative):
+                """Fallback populate that doesn't try to update main fields"""
+                pair = self.get_next_prompt_pair()
+                if pair:
+                    positive, negative = self.combine_prompt_pair(
+                        pair, custom_start, custom_end, custom_negative
+                    )
+                    print(f"[Civitai Randomizer] Generated prompts (main field update not available):")
+                    print(f"  Positive: {positive[:100]}...")
+                    print(f"  Negative: {negative[:100]}...")
+                    
+                    # Store for potential later use
+                    self.last_populated_positive = positive
+                    self.last_populated_negative = negative
+                    
+                    remaining = len(self.prompt_queue) - self.queue_index
+                    return f"✅ Generated prompts! Queue: {remaining} remaining (Check console for prompts)"
+                else:
+                    return "❌ No prompts available - fetch some prompts first!"
+            
             populate_btn.click(
-                populate_prompt_fields,
+                populate_fallback,
                 inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
                 outputs=[prompt_queue_status]
             )
-            print(f"[Civitai Randomizer] Warning: Main UI components not captured, button will only update status")
+            print(f"[Civitai Randomizer] Button bound with fallback method (no main field updates)")
         
         return [
             enable_randomizer, bypass_prompts, nsfw_filter, keyword_filter, sort_method,
@@ -684,27 +732,6 @@ class CivitaiRandomizerScript(scripts.Script):
                 p.prompt = lora_text
             
             print(f"Applied random LORAs: {lora_text}")
-
-    # Component capture callbacks - store references to main UI fields
-    def _capture_txt2img_positive(self, component, **_kwargs):
-        """Capture reference to txt2img positive prompt field"""
-        self.txt2img_positive_prompt_ref = component
-        print(f"[Civitai Randomizer] Captured txt2img positive prompt component: {type(component)}")
-    
-    def _capture_txt2img_negative(self, component, **_kwargs):
-        """Capture reference to txt2img negative prompt field"""
-        self.txt2img_negative_prompt_ref = component
-        print(f"[Civitai Randomizer] Captured txt2img negative prompt component: {type(component)}")
-    
-    def _capture_img2img_positive(self, component, **_kwargs):
-        """Capture reference to img2img positive prompt field"""
-        self.img2img_positive_prompt_ref = component
-        print(f"[Civitai Randomizer] Captured img2img positive prompt component: {type(component)}")
-    
-    def _capture_img2img_negative(self, component, **_kwargs):
-        """Capture reference to img2img negative prompt field"""
-        self.img2img_negative_prompt_ref = component
-        print(f"[Civitai Randomizer] Captured img2img negative prompt component: {type(component)}")
 
 # Register the script
 def on_ui_tabs():
