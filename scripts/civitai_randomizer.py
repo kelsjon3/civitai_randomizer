@@ -190,10 +190,23 @@ class CivitaiRandomizerScript(scripts.Script):
                 with gr.Accordion("Prompt Population Controls", open=True):
                     with gr.Row():
                         populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
+                        test_bridge_btn = gr.Button("🧪 Test Bridge", variant="secondary", size="sm")
                     with gr.Row():
                         generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg")
                     
                     prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
+                    
+                    # Hidden textboxes to store current prompts for JavaScript access - this is the "bridge"
+                    hidden_positive_prompt = gr.Textbox(
+                        value="No prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
+                        visible=False, 
+                        elem_id="civitai_hidden_positive"
+                    )
+                    hidden_negative_prompt = gr.Textbox(
+                        value="No negative prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
+                        visible=False,
+                        elem_id="civitai_hidden_negative"
+                    )
                     
                     with gr.Row():
                         custom_negative_prompt = gr.Textbox(
@@ -233,26 +246,23 @@ class CivitaiRandomizerScript(scripts.Script):
                     self.api_key = api_key
                     prompts = self.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
                     
-                    # Store the first prompt in window variables for JS access
                     status_html = f"Cached prompts: {len(self.cached_prompts)}"
                     queue_html = f"Prompt queue: {len(self.prompt_queue)} prompts available"
                     
+                    # Get current prompts for hidden textboxes (the bridge)
+                    current_pos = ""
+                    current_neg = ""
                     if self.prompt_queue:
                         first_pair = self.prompt_queue[0] if len(self.prompt_queue) > 0 else None
                         if first_pair:
-                            queue_html += f"""
-                            <script>
-                                window.civitai_last_positive = {json.dumps(first_pair['positive'])};
-                                window.civitai_last_negative = {json.dumps(first_pair['negative'])};
-                                console.log('[Civitai Randomizer] Stored first prompt in window variables');
-                                console.log('[Civitai Randomizer] Ready for JS populate!');
-                            </script>
-                            """
+                            current_pos = first_pair['positive']
+                            current_neg = first_pair['negative']
+                            print(f"[Civitai Randomizer] 🔗 Updating bridge textboxes - Positive: '{current_pos[:100]}...' Negative: '{current_neg[:50]}...'")
                     
-                    return status_html, queue_html
+                    return status_html, queue_html, current_pos, current_neg
                 
                 def populate_prompt_fields(custom_start, custom_end, custom_negative):
-                    """Get next prompt pair and populate the main UI fields"""
+                    """Get next prompt pair and update window variables, then use JavaScript to populate fields"""
                     pair = self.get_next_prompt_pair()
                     if pair:
                         # Combine with custom text
@@ -271,14 +281,19 @@ class CivitaiRandomizerScript(scripts.Script):
                         remaining = len(self.prompt_queue) - self.queue_index
                         status_msg = f"✅ Prompts populated! Queue: {remaining} remaining"
                         
-                        # Return HTML with embedded JavaScript to populate main fields
+                        # Update window variables and populate fields
                         script_html = f"""
                         <div style='color: green; font-weight: bold;'>{status_msg}</div>
                         <script>
+                            // Update window variables with current prompts
+                            window.civitai_last_positive = {json.dumps(positive)};
+                            window.civitai_last_negative = {json.dumps(negative)};
+                            console.log('[Civitai Randomizer] Updated window variables with current prompts');
+                            
                             setTimeout(() => {{
                                 console.log('[Civitai Randomizer] Populating main prompt fields...');
                                 
-                                // Use the same working approach as the test button
+                                // Use the same working approach as the test button  
                                 let positiveField = document.querySelector('#txt2img_prompt textarea');
                                 let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
                                 
@@ -290,8 +305,9 @@ class CivitaiRandomizerScript(scripts.Script):
                                 }}
                                 
                                 if (positiveField && negativeField) {{
-                                    const positive_prompt = {json.dumps(positive)};
-                                    const negative_prompt = {json.dumps(negative)};
+                                    // Use the window variables
+                                    const positive_prompt = window.civitai_last_positive;
+                                    const negative_prompt = window.civitai_last_negative;
                                     
                                     positiveField.value = positive_prompt;
                                     negativeField.value = negative_prompt;
@@ -344,7 +360,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 fetch_prompts_btn.click(
                     fetch_new_prompts,
                     inputs=[api_key_input, nsfw_filter, keyword_filter, sort_method],
-                    outputs=[cache_status, prompt_queue_status]
+                    outputs=[cache_status, prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt]
                 )
                 
                 # Initialize LORA list on load
@@ -382,21 +398,130 @@ class CivitaiRandomizerScript(scripts.Script):
                         status_msg = f"✅ Populated main prompt fields! Queue: {remaining} remaining"
                         
                         print(f"[Civitai Randomizer] Returning: status='{status_msg}', pos_len={len(positive)}, neg_len={len(negative)}")
-                        # Return status and the actual prompts for JavaScript to use
-                        return status_msg, positive, negative
+                        # Return status, bridge textbox values, and the actual prompts for JavaScript to use
+                        return status_msg, positive, negative, positive, negative
                     else:
                         print(f"[Civitai Randomizer] No prompts available in queue - need to fetch prompts first!")
-                        return "❌ No prompts available - fetch some prompts first!", "NO_PROMPTS_AVAILABLE", "NO_PROMPTS_AVAILABLE"
+                        return "❌ No prompts available - fetch some prompts first!", "", "", "NO_PROMPTS_AVAILABLE", "NO_PROMPTS_AVAILABLE"
                 
 
                 
-                # Also bind the original populate button for console output
+                # Bind the populate button to update bridge textboxes and use JavaScript to populate main fields
                 populate_btn.click(
-                    populate_prompt_fields,
+                    get_prompts_for_js,
                     inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-                    outputs=[prompt_queue_status]
+                    outputs=[prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt],
+                    _js="""
+                    function(custom_start, custom_end, custom_negative) {
+                        console.log('[Civitai Randomizer] Populate button clicked with JS!');
+                        console.log('[Civitai Randomizer] Custom inputs:', {custom_start, custom_end, custom_negative});
+                        
+                        // Give Python time to update the hidden textboxes
+                        setTimeout(() => {
+                            // Read from hidden textboxes (the bridge)
+                            const hiddenPositive = document.querySelector('#civitai_hidden_positive textarea');
+                            const hiddenNegative = document.querySelector('#civitai_hidden_negative textarea');
+                            
+                            let positive_prompt = "Bridge not working!";
+                            let negative_prompt = "Bridge not working!";
+                            
+                            if (hiddenPositive) {
+                                positive_prompt = hiddenPositive.value;
+                                console.log('[Civitai Randomizer] Read from bridge - Positive:', positive_prompt.substring(0, 100) + '...');
+                            }
+                            if (hiddenNegative) {
+                                negative_prompt = hiddenNegative.value;
+                                console.log('[Civitai Randomizer] Read from bridge - Negative:', negative_prompt.substring(0, 50) + '...');
+                            }
+                            
+                            // Now populate main fields using the proven working approach
+                            let positiveField = document.querySelector('#txt2img_prompt textarea');
+                            let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
+                            
+                            if (!positiveField) {
+                                positiveField = document.querySelector('#img2img_prompt textarea');
+                            }
+                            if (!negativeField) {
+                                negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                            }
+                            
+                            if (positiveField && negativeField) {
+                                positiveField.value = positive_prompt;
+                                negativeField.value = negative_prompt;
+                                
+                                ['input', 'change'].forEach(eventType => {
+                                    positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                                    negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                                });
+                                
+                                console.log('[Civitai Randomizer] ✅ Main fields populated via bridge!');
+                            } else {
+                                console.log('[Civitai Randomizer] ❌ Could not find main prompt fields');
+                            }
+                        }, 500);
+                        
+                        return [custom_start, custom_end, custom_negative];
+                    }
+                    """
                 )
-                print(f"[Civitai Randomizer] ✅ Populate button bound successfully")
+                print(f"[Civitai Randomizer] ✅ Populate button bound with bridge approach successfully")
+                
+                # Add test bridge button to verify hidden textbox bridge works
+                test_bridge_btn.click(
+                    lambda: "Testing bridge textboxes...",
+                    outputs=[prompt_queue_status],
+                    _js="""
+                    function() {
+                        console.log('[Civitai Randomizer] Test Bridge button clicked!');
+                        
+                        setTimeout(() => {
+                            // Read from hidden textboxes (the bridge)
+                            const hiddenPositive = document.querySelector('#civitai_hidden_positive textarea');
+                            const hiddenNegative = document.querySelector('#civitai_hidden_negative textarea');
+                            
+                            let positive_prompt = "Hidden textbox not found!";
+                            let negative_prompt = "Hidden textbox not found!";
+                            
+                            if (hiddenPositive) {
+                                positive_prompt = hiddenPositive.value;
+                                console.log('[Civitai Randomizer] Found hidden positive textbox, value:', positive_prompt.substring(0, 100) + '...');
+                            }
+                            if (hiddenNegative) {
+                                negative_prompt = hiddenNegative.value;
+                                console.log('[Civitai Randomizer] Found hidden negative textbox, value:', negative_prompt.substring(0, 50) + '...');
+                            }
+                            
+                            // Now populate main fields using the same working approach
+                            let positiveField = document.querySelector('#txt2img_prompt textarea');
+                            let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
+                            
+                            if (!positiveField) {
+                                positiveField = document.querySelector('#img2img_prompt textarea');
+                            }
+                            if (!negativeField) {
+                                negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                            }
+                            
+                            if (positiveField && negativeField) {
+                                positiveField.value = positive_prompt;
+                                negativeField.value = negative_prompt;
+                                
+                                ['input', 'change'].forEach(eventType => {
+                                    positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                                    negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                                });
+                                
+                                console.log('[Civitai Randomizer] ✅ Fields populated using bridge textboxes!');
+                            } else {
+                                console.log('[Civitai Randomizer] ❌ Could not find main prompt fields');
+                            }
+                        }, 200);
+                        
+                        return [];
+                    }
+                    """
+                )
+                print(f"[Civitai Randomizer] ✅ Test bridge button bound successfully")
                 
                 # Add a simple test button to verify JavaScript works
                 test_status = gr.Textbox(visible=False)
