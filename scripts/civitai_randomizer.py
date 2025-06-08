@@ -311,24 +311,31 @@ class CivitaiRandomizerScript(scripts.Script):
                 # Define prompt generation function for JavaScript approach
                 def get_prompts_for_js(custom_start, custom_end, custom_negative):
                     """Generate prompts and return them for JavaScript to populate"""
-                    print(f"[Civitai Randomizer] JS button clicked - generating prompts...")
+                    print(f"[Civitai Randomizer] ===== JS FUNCTION CALLED =====")
+                    print(f"[Civitai Randomizer] Queue length: {len(self.prompt_queue)}")
+                    print(f"[Civitai Randomizer] Queue index: {self.queue_index}")
+                    print(f"[Civitai Randomizer] Custom inputs: start='{custom_start}', end='{custom_end}', negative='{custom_negative}'")
+                    
                     pair = self.get_next_prompt_pair()
+                    print(f"[Civitai Randomizer] Got pair: {pair is not None}")
+                    
                     if pair:
                         positive, negative = self.combine_prompt_pair(
                             pair, custom_start, custom_end, custom_negative
                         )
                         print(f"[Civitai Randomizer] Generated prompts for JavaScript population:")
-                        print(f"  Positive: {positive[:100]}...")
-                        print(f"  Negative: {negative[:100]}...")
+                        print(f"  Positive ({len(positive)} chars): {positive[:100]}...")
+                        print(f"  Negative ({len(negative)} chars): {negative[:100]}...")
                         
                         remaining = len(self.prompt_queue) - self.queue_index
                         status_msg = f"✅ Populated main prompt fields! Queue: {remaining} remaining"
                         
+                        print(f"[Civitai Randomizer] Returning: status='{status_msg}', pos_len={len(positive)}, neg_len={len(negative)}")
                         # Return status and the actual prompts for JavaScript to use
                         return status_msg, positive, negative
                     else:
-                        print(f"[Civitai Randomizer] No prompts available in queue")
-                        return "❌ No prompts available - fetch some prompts first!", "", ""
+                        print(f"[Civitai Randomizer] No prompts available in queue - need to fetch prompts first!")
+                        return "❌ No prompts available - fetch some prompts first!", "NO_PROMPTS_AVAILABLE", "NO_PROMPTS_AVAILABLE"
                 
                 # Create hidden outputs to pass prompts to JavaScript
                 js_positive_output = gr.Textbox(visible=False)
@@ -341,7 +348,12 @@ class CivitaiRandomizerScript(scripts.Script):
                     outputs=[prompt_queue_status, js_positive_output, js_negative_output],
                     _js="""
                     function(custom_start, custom_end, custom_negative, status, positive_prompt, negative_prompt) {
-                        console.log('[Civitai Randomizer] JS button clicked - received prompts:', {
+                        console.log('[Civitai Randomizer] JS button clicked!');
+                        console.log('[Civitai Randomizer] Function arguments:', arguments.length);
+                        console.log('[Civitai Randomizer] Status:', status);
+                        console.log('[Civitai Randomizer] Positive prompt length:', positive_prompt?.length || 'undefined');
+                        console.log('[Civitai Randomizer] Negative prompt length:', negative_prompt?.length || 'undefined');
+                        console.log('[Civitai Randomizer] Received prompts:', {
                             positive: positive_prompt?.substring(0, 50) + '...',
                             negative: negative_prompt?.substring(0, 50) + '...'
                         });
@@ -437,6 +449,47 @@ class CivitaiRandomizerScript(scripts.Script):
                     outputs=[prompt_queue_status]
                 )
                 print(f"[Civitai Randomizer] ✅ Original populate button bound successfully")
+                
+                # Add a simple test button to verify JavaScript works
+                test_btn = gr.Button("🧪 Test JS (Static)", variant="secondary")
+                test_btn.click(
+                    lambda: "Test completed",
+                    outputs=[prompt_queue_status],
+                    _js="""
+                    function() {
+                        console.log('[Civitai Randomizer] Test button clicked!');
+                        
+                        setTimeout(() => {
+                            let positiveField = document.querySelector('#txt2img_prompt textarea');
+                            let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
+                            
+                            if (!positiveField) {
+                                positiveField = document.querySelector('#img2img_prompt textarea');
+                            }
+                            if (!negativeField) {
+                                negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                            }
+                            
+                            if (positiveField && negativeField) {
+                                positiveField.value = 'TEST POSITIVE PROMPT - JavaScript is working!';
+                                negativeField.value = 'TEST NEGATIVE PROMPT - JavaScript is working!';
+                                
+                                ['input', 'change'].forEach(eventType => {
+                                    positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                                    negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                                });
+                                
+                                console.log('[Civitai Randomizer] ✅ Test fields populated successfully!');
+                            } else {
+                                console.log('[Civitai Randomizer] ❌ Could not find prompt fields');
+                            }
+                        }, 100);
+                        
+                        return [];
+                    }
+                    """
+                )
+                print(f"[Civitai Randomizer] ✅ Test button added successfully")
         
         # Store component references for external access
         script_callbacks.on_ui_tabs(lambda: self.register_main_ui_components())
