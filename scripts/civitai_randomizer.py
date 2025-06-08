@@ -9,6 +9,7 @@ import random
 import json
 import re
 import os
+import time
 from typing import List, Dict, Optional, Tuple, Any
 
 class CivitaiRandomizerScript(scripts.Script):
@@ -341,100 +342,19 @@ class CivitaiRandomizerScript(scripts.Script):
                 js_positive_output = gr.Textbox(visible=False)
                 js_negative_output = gr.Textbox(visible=False)
                 
-                # Bind the JavaScript populate button
+                # Bind the JavaScript populate button - use a simpler approach
                 js_populate_btn.click(
-                    get_prompts_for_js,
+                    lambda custom_start, custom_end, custom_negative: self.populate_main_fields_directly(custom_start, custom_end, custom_negative),
                     inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-                    outputs=[prompt_queue_status, js_positive_output, js_negative_output],
+                    outputs=[prompt_queue_status],
                     _js="""
-                    function(custom_start, custom_end, custom_negative, status, positive_prompt, negative_prompt) {
-                        console.log('[Civitai Randomizer] JS button clicked!');
-                        console.log('[Civitai Randomizer] Function arguments:', arguments.length);
-                        console.log('[Civitai Randomizer] Status:', status);
-                        console.log('[Civitai Randomizer] Positive prompt length:', positive_prompt?.length || 'undefined');
-                        console.log('[Civitai Randomizer] Negative prompt length:', negative_prompt?.length || 'undefined');
-                        console.log('[Civitai Randomizer] Received prompts:', {
-                            positive: positive_prompt?.substring(0, 50) + '...',
-                            negative: negative_prompt?.substring(0, 50) + '...'
-                        });
+                    function(custom_start, custom_end, custom_negative) {
+                        console.log('[Civitai Randomizer] JS populate button clicked!');
+                        console.log('[Civitai Randomizer] Custom inputs:', {custom_start, custom_end, custom_negative});
                         
-                        // Wait a bit to ensure DOM is ready
-                        setTimeout(() => {
-                            // Use our proven field detection method
-                            let positiveField = document.querySelector('#txt2img_prompt textarea');
-                            let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
-                            
-                            // Try img2img if txt2img not found
-                            if (!positiveField) {
-                                positiveField = document.querySelector('#img2img_prompt textarea');
-                            }
-                            if (!negativeField) {
-                                negativeField = document.querySelector('#img2img_neg_prompt textarea');
-                            }
-                            
-                            // Try container search if direct selectors failed
-                            if (!positiveField || !negativeField) {
-                                const txt2imgContainer = document.querySelector('#txt2img_prompt');
-                                const txt2imgNegContainer = document.querySelector('#txt2img_neg_prompt');
-                                
-                                if (txt2imgContainer && !positiveField) {
-                                    positiveField = txt2imgContainer.querySelector('textarea');
-                                }
-                                if (txt2imgNegContainer && !negativeField) {
-                                    negativeField = txt2imgNegContainer.querySelector('textarea');
-                                }
-                            }
-                            
-                            // Fallback search
-                            if (!positiveField || !negativeField) {
-                                const allTextareas = document.querySelectorAll('textarea');
-                                allTextareas.forEach((textarea) => {
-                                    const placeholder = textarea.placeholder || '';
-                                    const label = textarea.parentElement?.querySelector('label')?.textContent || '';
-                                    
-                                    const isPositive = (placeholder.toLowerCase().includes('prompt') && 
-                                                      !placeholder.toLowerCase().includes('negative')) ||
-                                                     (label.toLowerCase().includes('prompt') && 
-                                                      !label.toLowerCase().includes('negative'));
-                                                      
-                                    const isNegative = placeholder.toLowerCase().includes('negative') ||
-                                                     label.toLowerCase().includes('negative');
-                                    
-                                    if (isPositive && !positiveField) {
-                                        positiveField = textarea;
-                                    }
-                                    if (isNegative && !negativeField) {
-                                        negativeField = textarea;
-                                    }
-                                });
-                            }
-                            
-                            if (positiveField && negativeField && positive_prompt && negative_prompt) {
-                                console.log('[Civitai Randomizer] ✅ SUCCESS! Populating main fields with actual Civitai prompts...');
-                                
-                                // Update with the actual generated prompts
-                                positiveField.value = positive_prompt;
-                                negativeField.value = negative_prompt;
-                                
-                                // Dispatch events to ensure Gradio recognizes the changes
-                                const events = ['input', 'change'];
-                                events.forEach(eventType => {
-                                    positiveField.dispatchEvent(new Event(eventType, {bubbles: true, cancelable: true}));
-                                    negativeField.dispatchEvent(new Event(eventType, {bubbles: true, cancelable: true}));
-                                });
-                                
-                                console.log('[Civitai Randomizer] 🎉 MAIN PROMPT FIELDS SUCCESSFULLY POPULATED WITH CIVITAI PROMPTS!');
-                                
-                            } else {
-                                console.log('[Civitai Randomizer] ❌ Error: Missing fields or prompts', {
-                                    positiveField: !!positiveField,
-                                    negativeField: !!negativeField,
-                                    positive_prompt: !!positive_prompt,
-                                    negative_prompt: !!negative_prompt
-                                });
-                            }
-                            
-                        }, 300);
+                        // Store a reference to populate after the Python function completes
+                        window.civitai_populate_pending = true;
+                        window.civitai_custom_inputs = {custom_start, custom_end, custom_negative};
                         
                         return [custom_start, custom_end, custom_negative];
                     }
@@ -591,6 +511,101 @@ class CivitaiRandomizerScript(scripts.Script):
             
         except Exception as e:
             print(f"Failed to update main prompt fields: {e}")
+
+    def populate_main_fields_directly(self, custom_start: str, custom_end: str, custom_negative: str) -> str:
+        """Generate prompts and return HTML with JavaScript to populate main fields"""
+        print(f"[Civitai Randomizer] populate_main_fields_directly called")
+        print(f"[Civitai Randomizer] Queue length: {len(self.prompt_queue)}")
+        print(f"[Civitai Randomizer] Queue index: {self.queue_index}")
+        
+        pair = self.get_next_prompt_pair()
+        if pair:
+            positive, negative = self.combine_prompt_pair(pair, custom_start, custom_end, custom_negative)
+            print(f"[Civitai Randomizer] Generated prompts:")
+            print(f"  Positive ({len(positive)} chars): {positive[:100]}...")
+            print(f"  Negative ({len(negative)} chars): {negative[:100]}...")
+            
+            remaining = len(self.prompt_queue) - self.queue_index
+            status_msg = f"✅ Generated prompts! Queue: {remaining} remaining"
+            
+            # Escape prompts for JavaScript
+            positive_escaped = positive.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${').replace("'", "\\'")
+            negative_escaped = negative.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${').replace("'", "\\'")
+            
+            # Return HTML with embedded JavaScript
+            script_html = f"""
+            <div style="color: green; font-weight: bold;">{status_msg}</div>
+            <script>
+            (function() {{
+                console.log('[Civitai Randomizer] Executing embedded script...');
+                
+                setTimeout(() => {{
+                    const positive_prompt = '{positive_escaped}';
+                    const negative_prompt = '{negative_escaped}';
+                    
+                    console.log('[Civitai Randomizer] Looking for prompt fields...');
+                    
+                    // Find prompt fields with multiple selectors
+                    let positiveField = document.querySelector('#txt2img_prompt textarea') ||
+                                      document.querySelector('#img2img_prompt textarea');
+                    let negativeField = document.querySelector('#txt2img_neg_prompt textarea') ||
+                                       document.querySelector('#img2img_neg_prompt textarea');
+                    
+                    // Additional fallback searches
+                    if (!positiveField || !negativeField) {{
+                        console.log('[Civitai Randomizer] Primary selectors failed, trying fallback...');
+                        const allTextareas = document.querySelectorAll('textarea');
+                        allTextareas.forEach((textarea) => {{
+                            const placeholder = textarea.placeholder || '';
+                            const label = textarea.closest('.gradio-textbox')?.querySelector('label')?.textContent || '';
+                            
+                            const isPositive = (placeholder.toLowerCase().includes('prompt') && 
+                                              !placeholder.toLowerCase().includes('negative')) ||
+                                             (label.toLowerCase().includes('prompt') && 
+                                              !label.toLowerCase().includes('negative'));
+                                              
+                            const isNegative = placeholder.toLowerCase().includes('negative') ||
+                                             label.toLowerCase().includes('negative');
+                            
+                            if (isPositive && !positiveField) {{
+                                positiveField = textarea;
+                                console.log('[Civitai Randomizer] Found positive field via fallback');
+                            }}
+                            if (isNegative && !negativeField) {{
+                                negativeField = textarea;
+                                console.log('[Civitai Randomizer] Found negative field via fallback');
+                            }}
+                        }});
+                    }}
+                    
+                    if (positiveField && negativeField) {{
+                        console.log('[Civitai Randomizer] ✅ Found both fields, populating...');
+                        
+                        positiveField.value = positive_prompt;
+                        negativeField.value = negative_prompt;
+                        
+                        // Dispatch events
+                        ['input', 'change'].forEach(eventType => {{
+                            positiveField.dispatchEvent(new Event(eventType, {{bubbles: true}}));
+                            negativeField.dispatchEvent(new Event(eventType, {{bubbles: true}}));
+                        }});
+                        
+                        console.log('[Civitai Randomizer] 🎉 FIELDS POPULATED SUCCESSFULLY!');
+                    }} else {{
+                        console.log('[Civitai Randomizer] ❌ Could not find prompt fields', {{
+                            positiveField: !!positiveField,
+                            negativeField: !!negativeField
+                        }});
+                    }}
+                }}, 200);
+            }})();
+            </script>
+            """
+            
+            return script_html
+        else:
+            print(f"[Civitai Randomizer] No prompts available in queue")
+            return '<div style="color: red;">❌ No prompts available - fetch some prompts first!</div>'
 
     def test_civitai_api(self, api_key: str) -> str:
         """Test connection to Civitai API"""
