@@ -19,6 +19,8 @@ class CivitaiRandomizerScript(scripts.Script):
         self.api_cooldown = 5  # seconds between API calls
         self.available_loras = []
         self.selected_loras = []
+        self.config_file = os.path.join(os.path.dirname(__file__), "civitai_config.json")
+        self.load_config()
         
     def title(self):
         return "Civitai Randomizer"
@@ -37,7 +39,8 @@ class CivitaiRandomizerScript(scripts.Script):
                         label="Civitai API Key", 
                         type="password",
                         placeholder="Enter your Civitai API key (optional for public content)",
-                        value=self.api_key
+                        value=self.api_key,
+                        info="API key is saved automatically and persists between sessions"
                     )
                     test_api_btn = gr.Button("Test API", variant="secondary", size="sm")
                 
@@ -74,7 +77,7 @@ class CivitaiRandomizerScript(scripts.Script):
                     )
                     sort_method = gr.Dropdown(
                         label="Sort Method",
-                        choices=["Most Reactions", "Most Comments", "Newest"],
+                        choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
                         value="Most Reactions"
                     )
                 
@@ -151,6 +154,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 
                 def update_api_key(api_key):
                     self.api_key = api_key
+                    self.save_config()
                     return ""
                 
                 def clear_prompt_cache():
@@ -232,6 +236,29 @@ class CivitaiRandomizerScript(scripts.Script):
         
         print(f"Civitai Randomizer: Updated prompt from '{original_prompt[:50]}...' to '{p.prompt[:50]}...'")
 
+    def load_config(self):
+        """Load configuration from file"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    config = json.load(f)
+                    self.api_key = config.get('api_key', '')
+                    print(f"Loaded API key from config: {'***' + self.api_key[-4:] if len(self.api_key) > 4 else 'empty'}")
+        except Exception as e:
+            print(f"Failed to load config: {e}")
+
+    def save_config(self):
+        """Save configuration to file"""
+        try:
+            config = {
+                'api_key': self.api_key
+            }
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            with open(self.config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save config: {e}")
+
     def test_civitai_api(self, api_key: str) -> str:
         """Test connection to Civitai API"""
         try:
@@ -278,6 +305,7 @@ class CivitaiRandomizerScript(scripts.Script):
             sort_mapping = {
                 "Most Reactions": "Most Reactions",
                 "Most Comments": "Most Comments", 
+                "Most Collected": "Most Collected",
                 "Newest": "Newest"
             }
             
