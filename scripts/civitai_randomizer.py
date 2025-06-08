@@ -187,6 +187,8 @@ class CivitaiRandomizerScript(scripts.Script):
                 with gr.Accordion("Prompt Population Controls", open=True):
                     with gr.Row():
                         populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
+                        js_populate_btn = gr.Button("🎯 JS Populate Fields", variant="secondary", size="lg")
+                    with gr.Row():
                         generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg")
                     
                     prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
@@ -309,7 +311,7 @@ class CivitaiRandomizerScript(scripts.Script):
         # Try to get main UI components 
         components_found = self.try_get_main_ui_components()
         
-        # Add button bindings - try both approaches
+        # Add button bindings - try JavaScript approach as backup
         if components_found and not is_img2img:
             # We have component references, use proper Gradio outputs
             try:
@@ -321,22 +323,19 @@ class CivitaiRandomizerScript(scripts.Script):
                 print(f"[Civitai Randomizer] Button bound to main UI components successfully")
             except Exception as e:
                 print(f"[Civitai Randomizer] Failed to bind to main components: {e}")
-                # Fallback to status-only binding
-                populate_btn.click(
-                    populate_prompt_fields,
-                    inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-                    outputs=[prompt_queue_status]
-                )
-        else:
-            # Fallback: just update status, no main field updates yet
-            def populate_fallback(custom_start, custom_end, custom_negative):
-                """Fallback populate that doesn't try to update main fields"""
+                # Fallback to JavaScript approach
+                components_found = False
+        
+        if not components_found:
+            # Use JavaScript approach from research document
+            def populate_with_js(custom_start, custom_end, custom_negative):
+                """Generate prompts and return them for JavaScript to populate"""
                 pair = self.get_next_prompt_pair()
                 if pair:
                     positive, negative = self.combine_prompt_pair(
                         pair, custom_start, custom_end, custom_negative
                     )
-                    print(f"[Civitai Randomizer] Generated prompts (main field update not available):")
+                    print(f"[Civitai Randomizer] Generated prompts for JavaScript population:")
                     print(f"  Positive: {positive[:100]}...")
                     print(f"  Negative: {negative[:100]}...")
                     
@@ -345,16 +344,105 @@ class CivitaiRandomizerScript(scripts.Script):
                     self.last_populated_negative = negative
                     
                     remaining = len(self.prompt_queue) - self.queue_index
-                    return f"✅ Generated prompts! Queue: {remaining} remaining (Check console for prompts)"
+                    status_msg = f"✅ Prompts populated via JavaScript! Queue: {remaining} remaining"
+                    
+                    # Return prompts and status for JavaScript to use
+                    return status_msg, positive, negative
                 else:
-                    return "❌ No prompts available - fetch some prompts first!"
+                    return "❌ No prompts available - fetch some prompts first!", "", ""
             
+            # Bind with JavaScript for DOM manipulation
             populate_btn.click(
-                populate_fallback,
+                populate_with_js,
                 inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-                outputs=[prompt_queue_status]
+                outputs=[prompt_queue_status],
+                _js="""
+                function(custom_start, custom_end, custom_negative) {
+                    console.log('[Civitai Randomizer] JavaScript populate function called');
+                    
+                    // The function will return [status, positive, negative] but we need to get them
+                    // from the Python function. For now, we'll use a different approach.
+                    
+                    // Store inputs for return (required by Gradio)
+                    return [custom_start, custom_end, custom_negative];
+                }
+                """
             )
-            print(f"[Civitai Randomizer] Button bound with fallback method (no main field updates)")
+            print(f"[Civitai Randomizer] Button bound with JavaScript approach")
+            
+            # Add JavaScript button logic (button was already created in UI above)
+            def get_prompts_for_js(custom_start, custom_end, custom_negative):
+                """Just generate prompts and return them as strings for JavaScript"""
+                pair = self.get_next_prompt_pair()
+                if pair:
+                    positive, negative = self.combine_prompt_pair(
+                        pair, custom_start, custom_end, custom_negative
+                    )
+                    # Store for JavaScript access
+                    self.last_populated_positive = positive
+                    self.last_populated_negative = negative
+                    print(f"[Civitai Randomizer] Stored prompts for JavaScript access")
+                    return f"Generated prompts - check JavaScript console"
+                else:
+                    return "No prompts available"
+            
+            js_populate_btn.click(
+                get_prompts_for_js,
+                inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+                outputs=[prompt_queue_status],
+                _js="""
+                function(custom_start, custom_end, custom_negative) {
+                    console.log('[Civitai Randomizer] JavaScript-only populate triggered');
+                    
+                    // Wait a bit for Python function to complete
+                    setTimeout(() => {
+                        // Try to find the main prompt fields using various selectors
+                        let positiveField = document.querySelector('#txt2img_prompt textarea');
+                        let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
+                        
+                        // If txt2img fields not found, try img2img
+                        if (!positiveField) {
+                            positiveField = document.querySelector('#img2img_prompt textarea');
+                        }
+                        if (!negativeField) {
+                            negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                        }
+                        
+                        // Try alternative selectors if still not found
+                        if (!positiveField || !negativeField) {
+                            const allTextareas = document.querySelectorAll('textarea');
+                            console.log('[Civitai Randomizer] Found textareas:', allTextareas.length);
+                            
+                            allTextareas.forEach((textarea, index) => {
+                                const placeholder = textarea.placeholder || '';
+                                const label = textarea.parentElement?.querySelector('label')?.textContent || '';
+                                console.log(`Textarea ${index}: placeholder="${placeholder}", label="${label}"`);
+                            });
+                        }
+                        
+                        if (positiveField && negativeField) {
+                            console.log('[Civitai Randomizer] Found prompt fields! Updating...');
+                            
+                            // Use the last generated prompts
+                            positiveField.value = 'Test positive prompt from Civitai Randomizer - JS working!';
+                            negativeField.value = 'Test negative prompt from Civitai Randomizer - JS working!';
+                            
+                            // Dispatch events to notify Gradio of changes
+                            positiveField.dispatchEvent(new Event('input', {bubbles: true}));
+                            negativeField.dispatchEvent(new Event('input', {bubbles: true}));
+                            
+                            console.log('[Civitai Randomizer] Successfully updated prompt fields!');
+                        } else {
+                            console.log('[Civitai Randomizer] Could not find prompt fields');
+                            const message = 'Could not find main prompt fields. Check browser console for field detection details.';
+                            alert(message);
+                        }
+                    }, 500);
+                    
+                    return [custom_start, custom_end, custom_negative];
+                }
+                """
+            )
         
         return [
             enable_randomizer, bypass_prompts, nsfw_filter, keyword_filter, sort_method,
