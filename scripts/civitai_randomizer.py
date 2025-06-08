@@ -24,6 +24,10 @@ class CivitaiRandomizerScript(scripts.Script):
         self.config_file = os.path.join(os.path.dirname(__file__), "civitai_config.json")
         self.load_config()
         
+        # Store last populated prompts for main UI access
+        self.last_populated_positive = ""
+        self.last_populated_negative = ""
+        
     def title(self):
         return "Civitai Randomizer"
 
@@ -31,319 +35,316 @@ class CivitaiRandomizerScript(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
-        with gr.Group():
-            with gr.Accordion("Civitai Randomizer", open=False):
-                gr.HTML("<h3>Civitai Prompt & LORA Randomizer</h3>")
-                
-                # API Configuration
+        with gr.Column():
+            # Header with extension info
+            gr.Markdown("""
+            # 🎲 Civitai Randomizer
+            *Enhance your Stable Diffusion workflow with random prompts from Civitai*
+            """)
+            
+            # Enable/Disable toggle prominently at top
+            enable_randomizer = gr.Checkbox(
+                label="🚀 Enable Civitai Randomizer", 
+                value=False,
+                info="Toggle to enable/disable all randomizer features"
+            )
+            
+            with gr.Group():
+                gr.Markdown("### 🔧 **API Configuration**")
                 with gr.Row():
                     api_key_input = gr.Textbox(
-                        label="Civitai API Key", 
+                        label="Civitai API Key",
+                        placeholder="Enter your Civitai API key here...",
                         type="password",
-                        placeholder="Enter your Civitai API key (optional for public content)",
                         value=self.api_key,
-                        info="API key is saved automatically and persists between sessions"
+                        info="Get your free API key from: https://civitai.com/user/account"
                     )
-                    test_api_btn = gr.Button("Test API", variant="secondary", size="sm")
+                    test_api_btn = gr.Button("🔍 Test Connection", variant="secondary", size="sm")
                 
-                api_status = gr.HTML("")
-                
-                # Main Controls
-                with gr.Row():
-                    enable_randomizer = gr.Checkbox(
-                        label="Enable Civitai Randomizer",
-                        value=False,
-                        info="Automatically fetch new prompts for each generation"
-                    )
-                    bypass_prompts = gr.Checkbox(
-                        label="Bypass Prompt Fetching",
-                        value=False,
-                        info="Use only custom prompts and LORA randomization"
-                    )
-                
-                # NSFW Filtering
+                api_status = gr.HTML(
+                    "🔑 API key saved automatically when entered",
+                    elem_classes=["api-status"]
+                )
+            
+            with gr.Group():
+                gr.Markdown("### 🎯 **Content Filters**")
                 with gr.Row():
                     nsfw_filter = gr.Dropdown(
-                        label="NSFW Content Filter",
-                        choices=["Include All", "Exclude NSFW", "Only NSFW"],
-                        value="Include All",
-                        info="Filter content based on NSFW classification"
-                    )
-                    
-                # Prompt Filtering
-                with gr.Row():
-                    keyword_filter = gr.Textbox(
-                        label="Keyword Filter",
-                        placeholder="woman, portrait, anime, landscape",
-                        info="Comma-separated keywords (OR logic): only fetch prompts containing at least one of these words"
+                        label="NSFW Content",
+                        choices=["Include NSFW", "Exclude NSFW", "Only NSFW"],
+                        value="Exclude NSFW",
+                        info="Filter content based on NSFW rating"
                     )
                     sort_method = gr.Dropdown(
-                        label="Sort Method",
-                        choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
-                        value="Most Reactions"
+                        label="Sort By",
+                        choices=["Most Reactions", "Most Collected", "Newest", "Oldest"],
+                        value="Most Reactions",
+                        info="How to sort results from Civitai"
                     )
                 
-                # Custom Prompt Management
-                with gr.Accordion("Custom Prompt Settings", open=False):
-                    with gr.Row():
-                        custom_prompt_start = gr.Textbox(
-                            label="Custom Prompt (Beginning)",
-                            placeholder="Text to add at the beginning of each prompt",
-                            lines=2
-                        )
-                    with gr.Row():
-                        custom_prompt_end = gr.Textbox(
-                            label="Custom Prompt (End)",
-                            placeholder="Text to add at the end of each prompt",
-                            lines=2
-                        )
+                keyword_filter = gr.Textbox(
+                    label="🔍 Keyword Filter (Optional)",
+                    placeholder="e.g., fantasy, portrait, landscape",
+                    info="Filter prompts by keywords. Use OR logic: 'word1, word2' finds prompts containing word1 OR word2"
+                )
                 
-                # LORA Management
-                with gr.Accordion("LORA Management", open=False):
-                    with gr.Row():
-                        enable_lora_randomizer = gr.Checkbox(
-                            label="Enable LORA Randomizer",
-                            value=False,
-                            info="Randomly select and apply LORAs"
-                        )
-                        refresh_loras_btn = gr.Button("Refresh LORA List", variant="secondary", size="sm")
-                    
+                bypass_prompts = gr.Checkbox(
+                    label="🚫 Bypass Prompt Replacement",
+                    value=False,
+                    info="Keep your original prompts and only apply LORA randomization"
+                )
+            
+            with gr.Group():
+                gr.Markdown("### ✏️ **Custom Text Options**")
+                with gr.Row():
+                    custom_prompt_start = gr.Textbox(
+                        label="Prefix Text",
+                        placeholder="Text to add at the beginning of prompts...",
+                        lines=2,
+                        info="This text will be added at the start of every generated prompt"
+                    )
+                    custom_prompt_end = gr.Textbox(
+                        label="Suffix Text", 
+                        placeholder="Text to add at the end of prompts...",
+                        lines=2,
+                        info="This text will be added at the end of every generated prompt"
+                    )
+                
+                custom_negative_prompt = gr.Textbox(
+                    label="Custom Negative Prompt",
+                    placeholder="Additional negative prompt text (optional)...",
+                    lines=2,
+                    info="This will be combined with Civitai negative prompts. Applied to all generations."
+                )
+            
+            # LORA Randomization Section
+            with gr.Group():
+                gr.Markdown("### 🎨 **LORA Randomization**")
+                enable_lora_randomizer = gr.Checkbox(
+                    label="🎲 Enable LORA Randomization",
+                    value=False,
+                    info="Randomly apply LORAs from your collection to each generation"
+                )
+                
+                with gr.Row():
                     lora_selection = gr.CheckboxGroup(
                         label="Available LORAs",
                         choices=[],
-                        value=[],
-                        info="Select LORAs to include in randomization"
+                        info="Select which LORAs can be randomly chosen. Leave empty to use all available LORAs."
+                    )
+                    with gr.Column(scale=1):
+                        refresh_loras_btn = gr.Button(
+                            "🔄 Refresh LORA List", 
+                            variant="secondary",
+                            size="sm",
+                            info="Scan for new LORAs in your models folder"
+                        )
+                        gr.Markdown("""
+                        **LORA Settings:**
+                        - Scans `models/Lora` and `models/LyCORIS`
+                        - Random selection if none chosen
+                        - Adjustable strength range
+                        """)
+                
+                with gr.Row():
+                    lora_strength_min = gr.Slider(
+                        label="Min LORA Strength",
+                        minimum=0.1,
+                        maximum=2.0,
+                        value=0.5,
+                        step=0.1,
+                        info="Minimum strength for randomly applied LORAs"
+                    )
+                    lora_strength_max = gr.Slider(
+                        label="Max LORA Strength",
+                        minimum=0.1,
+                        maximum=2.0,
+                        value=1.0,
+                        step=0.1,
+                        info="Maximum strength for randomly applied LORAs"
+                    )
+                
+                max_loras_per_gen = gr.Slider(
+                    label="Max LORAs per Generation",
+                    minimum=1,
+                    maximum=5,
+                    value=2,
+                    step=1,
+                    info="Maximum number of LORAs to apply per generation"
+                )
+            
+            # Main Action Section
+            with gr.Group():
+                gr.Markdown("### 🎲 **Prompt Generation**")
+                with gr.Row():
+                    populate_btn = gr.Button(
+                        "🎯 Populate Prompt Fields", 
+                        variant="primary", 
+                        size="lg",
+                        info="Use next prompt from queue"
+                    )
+                    fetch_and_populate_btn = gr.Button(
+                        "🔄 Fetch & Populate New", 
+                        variant="secondary", 
+                        size="lg",
+                        info="Get fresh prompts from Civitai and populate"
+                    )
+                
+                # Enhanced status displays
+                with gr.Row():
+                    populate_status = gr.HTML(
+                        "💡 <b>Ready:</b> Click 'Populate Prompt Fields' to get prompts from queue",
+                        elem_classes=["status-message"]
+                    )
+                    prompt_queue_status = gr.HTML(
+                        "📊 <b>Queue:</b> 0 prompts available",
+                        elem_classes=["queue-status"]
+                    )
+                
+                # Display boxes for the populated prompts
+                gr.Markdown("#### 📋 **Generated Prompts**")
+                with gr.Row():
+                    with gr.Column():
+                        current_positive = gr.Textbox(
+                            label="✅ Positive Prompt",
+                            placeholder="Generated positive prompt will appear here...",
+                            lines=4,
+                            interactive=True,
+                            info="📝 Copy this to your main prompt field"
+                        )
+                    with gr.Column():
+                        current_negative = gr.Textbox(
+                            label="❌ Negative Prompt", 
+                            placeholder="Generated negative prompt will appear here...",
+                            lines=4,
+                            interactive=True,
+                            info="📝 Copy this to your main negative prompt field"
+                        )
+            
+            # Advanced Controls
+            with gr.Accordion("⚙️ Advanced Controls & Cache Management", open=False):
+                with gr.Row():
+                    with gr.Column():
+                        cache_status = gr.HTML("📊 <b>Cache:</b> 0 prompts stored")
+                        clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm")
+                        
+                    with gr.Column():
+                        fetch_prompts_btn = gr.Button("📥 Fetch New Prompts", variant="primary", size="sm")
+                        gr.HTML("💡 <i>Tip: Fetch prompts manually to build up your queue</i>")
+                
+                gr.Markdown("""
+                **How it works:**
+                1. **Configure:** Set your API key and filters
+                2. **Populate:** Click 'Populate Prompt Fields' to get prompts
+                3. **Generate:** Use with 'Generate Forever' for continuous randomization
+                4. **Copy:** Manual copy from display boxes to main fields (temporary limitation)
+                """)
+            
+            # Event handlers
+            def test_api_connection(api_key):
+                return self.test_civitai_api(api_key)
+            
+            def refresh_lora_list():
+                loras = self.get_available_loras()
+                return gr.CheckboxGroup.update(choices=loras)
+            
+            def update_api_key(api_key):
+                self.api_key = api_key
+                self.save_config()
+                return "🔑 API key saved successfully!"
+            
+            def clear_prompt_cache():
+                self.cached_prompts = []
+                self.prompt_queue = []
+                self.queue_index = 0
+                return "📊 <b>Cache:</b> 0 prompts stored", "📊 <b>Queue:</b> 0 prompts available"
+            
+            def fetch_new_prompts(api_key, nsfw_filter, keyword_filter, sort_method):
+                self.api_key = api_key
+                prompts = self.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
+                cache_msg = f"📊 <b>Cache:</b> {len(self.cached_prompts)} prompts stored"
+                queue_msg = f"📊 <b>Queue:</b> {len(self.prompt_queue)} prompts available"
+                return cache_msg, queue_msg
+            
+            def populate_prompt_fields(custom_start, custom_end, custom_negative):
+                """Get next prompt pair and populate display fields"""
+                pair = self.get_next_prompt_pair()
+                if pair:
+                    # Combine with custom text
+                    positive, negative = self.combine_prompt_pair(
+                        pair, custom_start, custom_end, custom_negative
                     )
                     
-                    with gr.Row():
-                        lora_strength_min = gr.Slider(
-                            label="Min LORA Strength",
-                            minimum=0.1,
-                            maximum=2.0,
-                            value=0.5,
-                            step=0.1
-                        )
-                        lora_strength_max = gr.Slider(
-                            label="Max LORA Strength",
-                            minimum=0.1,
-                            maximum=2.0,
-                            value=1.0,
-                            step=0.1
-                        )
+                    # Store for access
+                    self.last_populated_positive = positive
+                    self.last_populated_negative = negative
                     
-                    max_loras_per_gen = gr.Slider(
-                        label="Max LORAs per Generation",
-                        minimum=1,
-                        maximum=5,
-                        value=2,
-                        step=1,
-                        info="Maximum number of LORAs to apply randomly"
-                    )
-                
-                # Main Action Buttons
-                with gr.Accordion("Prompt Population Controls", open=True):
-                    with gr.Row():
-                        populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
-                        generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg")
+                    print(f"Populated prompts:")
+                    print(f"  Positive: {positive[:50]}...")
+                    print(f"  Negative: {negative[:50]}...")
                     
-                    prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
+                    remaining = len(self.prompt_queue) - self.queue_index
+                    status_msg = f"✅ <b>Success!</b> Prompts populated. Queue: {remaining} remaining"
+                    queue_msg = f"📊 <b>Queue:</b> {remaining} prompts remaining"
                     
-                    with gr.Row():
-                        custom_negative_prompt = gr.Textbox(
-                            label="Custom Negative Prompt",
-                            placeholder="Text to add to negative prompts (optional)",
-                            lines=2,
-                            info="This will be combined with Civitai negative prompts"
-                        )
+                    return status_msg, queue_msg, positive, negative
+                else:
+                    return "❌ <b>No prompts available</b> - fetch some prompts first!", "📊 <b>Queue:</b> 0 prompts available", "", ""
+            
+            def fetch_and_populate(api_key, nsfw_filter, keyword_filter, sort_method, custom_start, custom_end, custom_negative):
+                """Fetch new prompts and immediately populate"""
+                # First fetch new prompts
+                self.api_key = api_key
+                prompts = self.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
                 
-                # Status and Cache Management
-                with gr.Accordion("Advanced Controls", open=False):
-                    with gr.Row():
-                        cache_status = gr.HTML("Cached prompts: 0")
-                        clear_cache_btn = gr.Button("Clear Cache", variant="secondary", size="sm")
-                        fetch_prompts_btn = gr.Button("Fetch New Prompts", variant="primary", size="sm")
-                
-                # Event handlers
-                def test_api_connection(api_key):
-                    return self.test_civitai_api(api_key)
-                
-                def refresh_lora_list():
-                    loras = self.get_available_loras()
-                    return gr.CheckboxGroup.update(choices=loras)
-                
-                def update_api_key(api_key):
-                    self.api_key = api_key
-                    self.save_config()
-                    return ""
-                
-                def clear_prompt_cache():
-                    self.cached_prompts = []
-                    self.prompt_queue = []
-                    self.queue_index = 0
-                    return "Cached prompts: 0", "Prompt queue: 0 prompts available"
-                
-                def fetch_new_prompts(api_key, nsfw_filter, keyword_filter, sort_method):
-                    self.api_key = api_key
-                    prompts = self.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
-                    return f"Cached prompts: {len(self.cached_prompts)}", f"Prompt queue: {len(self.prompt_queue)} prompts available"
-                
-                def populate_prompt_fields(custom_start, custom_end, custom_negative):
-                    """Get next prompt pair and populate main fields"""
-                    pair = self.get_next_prompt_pair()
-                    if pair:
-                        # Combine with custom text
-                        positive, negative = self.combine_prompt_pair(
-                            pair, custom_start, custom_end, custom_negative
-                        )
-                        
-                        # Store for JavaScript access
-                        import json
-                        js_code = f"""
-                        <script>
-                        window.civitai_last_prompts = {json.dumps({'positive': positive, 'negative': negative})};
-                        </script>
-                        """
-                        
-                        # Try to inject JavaScript
-                        try:
-                            # This is a bit of a hack but should work
-                            shared.html_messages = getattr(shared, 'html_messages', [])
-                            shared.html_messages.append(js_code)
-                        except:
-                            pass
-                        
-                        print(f"Populated prompts:")
-                        print(f"  Positive: {positive[:50]}...")
-                        print(f"  Negative: {negative[:50]}...")
-                        
-                        return f"✓ Populated fields! Queue: {len(self.prompt_queue) - self.queue_index} prompts remaining"
-                    else:
-                        return "❌ No prompts available - fetch some prompts first!"
-                
-                def trigger_generate_forever():
-                    """Trigger the native Generate Forever functionality"""
-                    # This will be handled by JavaScript integration
-                    return "Generate Forever activated! Each generation will use the next Civitai prompt."
-                
-                # Bind events
-                test_api_btn.click(
-                    test_api_connection,
-                    inputs=[api_key_input],
-                    outputs=[api_status]
-                )
-                
-                refresh_loras_btn.click(
-                    refresh_lora_list,
-                    outputs=[lora_selection]
-                )
-                
-                api_key_input.change(
-                    update_api_key,
-                    inputs=[api_key_input],
-                    outputs=[api_status]
-                )
-                
-                clear_cache_btn.click(
-                    clear_prompt_cache,
-                    outputs=[cache_status, prompt_queue_status]
-                )
-                
-                fetch_prompts_btn.click(
-                    fetch_new_prompts,
-                    inputs=[api_key_input, nsfw_filter, keyword_filter, sort_method],
-                    outputs=[cache_status, prompt_queue_status]
-                )
-                
-                # Initialize LORA list on load
-                self.refresh_lora_list_on_load(lora_selection)
-                
-                # Store references for the main UI integration
-                self.populate_btn = populate_btn
-                self.generate_forever_btn = generate_forever_btn
-                self.prompt_queue_status = prompt_queue_status
-                self.custom_negative_prompt = custom_negative_prompt
-        
-        # Store component references for external access
-        script_callbacks.on_ui_tabs(lambda: self.register_main_ui_components())
-        
-        # Add button bindings  
-        populate_btn.click(
-            populate_prompt_fields,
-            inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-            outputs=[prompt_queue_status],
-            _js="""
-            function(custom_start, custom_end, custom_negative) {
-                console.log('Civitai: Populate button clicked');
-                
-                // Wait for backend response, then populate fields
-                setTimeout(() => {
-                    console.log('Civitai: Looking for prompt fields...');
-                    
-                    // More comprehensive field detection
-                    let positiveField = null;
-                    let negativeField = null;
-                    
-                    // Method 1: Try specific IDs
-                    positiveField = document.querySelector('#txt2img_prompt textarea') || 
-                                   document.querySelector('#img2img_prompt textarea');
-                    negativeField = document.querySelector('#txt2img_neg_prompt textarea') || 
-                                   document.querySelector('#img2img_neg_prompt textarea');
-                    
-                    // Method 2: Try by component structure
-                    if (!positiveField) {
-                        const allTextareas = document.querySelectorAll('textarea');
-                        for (let textarea of allTextareas) {
-                            const label = textarea.parentElement?.querySelector('label');
-                            if (label && label.textContent.toLowerCase().includes('prompt') && 
-                                !label.textContent.toLowerCase().includes('negative')) {
-                                positiveField = textarea;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (!negativeField) {
-                        const allTextareas = document.querySelectorAll('textarea');
-                        for (let textarea of allTextareas) {
-                            const label = textarea.parentElement?.querySelector('label');
-                            if (label && label.textContent.toLowerCase().includes('negative')) {
-                                negativeField = textarea;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    console.log('Civitai: Found fields:', {
-                        positive: !!positiveField,
-                        negative: !!negativeField
-                    });
-                    
-                    // For now, let's just show debug info
-                    if (positiveField) {
-                        console.log('Civitai: Positive field found:', positiveField);
-                        // positiveField.value = 'TEST POSITIVE PROMPT FROM CIVITAI';
-                        // positiveField.dispatchEvent(new Event('input', {bubbles: true}));
-                    }
-                    
-                    if (negativeField) {
-                        console.log('Civitai: Negative field found:', negativeField);
-                        // negativeField.value = 'TEST NEGATIVE PROMPT FROM CIVITAI';
-                        // negativeField.dispatchEvent(new Event('input', {bubbles: true}));
-                    }
-                    
-                    if (!positiveField && !negativeField) {
-                        console.log('Civitai: No fields found. Available textareas:');
-                        document.querySelectorAll('textarea').forEach((ta, i) => {
-                            console.log(`  ${i}: ${ta.placeholder || 'no placeholder'}`);
-                        });
-                    }
-                    
-                }, 500);
-                
-                return [custom_start, custom_end, custom_negative];
-            }
-            """
-        )
+                # Then populate
+                return populate_prompt_fields(custom_start, custom_end, custom_negative)
+            
+            # Bind events
+            test_api_btn.click(
+                test_api_connection,
+                inputs=[api_key_input],
+                outputs=[api_status]
+            )
+            
+            refresh_loras_btn.click(
+                refresh_lora_list,
+                outputs=[lora_selection]
+            )
+            
+            api_key_input.change(
+                update_api_key,
+                inputs=[api_key_input],
+                outputs=[api_status]
+            )
+            
+            clear_cache_btn.click(
+                clear_prompt_cache,
+                outputs=[cache_status, prompt_queue_status]
+            )
+            
+            fetch_prompts_btn.click(
+                fetch_new_prompts,
+                inputs=[api_key_input, nsfw_filter, keyword_filter, sort_method],
+                outputs=[cache_status, prompt_queue_status]
+            )
+            
+            # Main populate button
+            populate_btn.click(
+                populate_prompt_fields,
+                inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+                outputs=[populate_status, prompt_queue_status, current_positive, current_negative]
+            )
+            
+            # Fetch and populate button
+            fetch_and_populate_btn.click(
+                fetch_and_populate,
+                inputs=[api_key_input, nsfw_filter, keyword_filter, sort_method, custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+                outputs=[populate_status, prompt_queue_status, current_positive, current_negative]
+            )
+            
+            # Initialize LORA list on load
+            self.refresh_lora_list_on_load(lora_selection)
         
         return [
             enable_randomizer, bypass_prompts, nsfw_filter, keyword_filter, sort_method,
