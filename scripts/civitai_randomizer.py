@@ -233,10 +233,27 @@ class CivitaiRandomizerScript(scripts.Script):
                 def fetch_new_prompts(api_key, nsfw_filter, keyword_filter, sort_method):
                     self.api_key = api_key
                     prompts = self.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
-                    return f"Cached prompts: {len(self.cached_prompts)}", f"Prompt queue: {len(self.prompt_queue)} prompts available"
+                    
+                    # Store the first prompt in window variables for JS access
+                    status_html = f"Cached prompts: {len(self.cached_prompts)}"
+                    queue_html = f"Prompt queue: {len(self.prompt_queue)} prompts available"
+                    
+                    if self.prompt_queue:
+                        first_pair = self.prompt_queue[0] if len(self.prompt_queue) > 0 else None
+                        if first_pair:
+                            queue_html += f"""
+                            <script>
+                                window.civitai_last_positive = {json.dumps(first_pair['positive'])};
+                                window.civitai_last_negative = {json.dumps(first_pair['negative'])};
+                                console.log('[Civitai Randomizer] Stored first prompt in window variables');
+                                console.log('[Civitai Randomizer] Ready for JS populate!');
+                            </script>
+                            """
+                    
+                    return status_html, queue_html
                 
                 def populate_prompt_fields(custom_start, custom_end, custom_negative):
-                    """Get next prompt pair and return status with prompts stored in window variables"""
+                    """Get next prompt pair and store the following one for JS access"""
                     pair = self.get_next_prompt_pair()
                     if pair:
                         # Combine with custom text
@@ -255,17 +272,24 @@ class CivitaiRandomizerScript(scripts.Script):
                         remaining = len(self.prompt_queue) - self.queue_index
                         status_msg = f"✅ Prompts generated! Queue: {remaining} remaining"
                         
-                        # Return HTML with script to store prompts in window variables
-                        script_html = f"""
-                        <div style='color: green; font-weight: bold;'>{status_msg}</div>
-                        <script>
-                            window.civitai_last_positive = {json.dumps(positive)};
-                            window.civitai_last_negative = {json.dumps(negative)};
-                            console.log('[Civitai Randomizer] Stored prompts in window variables');
-                            console.log('[Civitai Randomizer] Positive length:', window.civitai_last_positive.length);
-                            console.log('[Civitai Randomizer] Negative length:', window.civitai_last_negative.length);
-                        </script>
-                        """
+                        # Store the NEXT prompt in window variables for JS access
+                        script_html = f"<div style='color: green; font-weight: bold;'>{status_msg}</div>"
+                        
+                        # Get the next prompt (without advancing the index) and store it
+                        if self.queue_index < len(self.prompt_queue):
+                            next_pair = self.prompt_queue[self.queue_index]
+                            next_positive, next_negative = self.combine_prompt_pair(
+                                next_pair, custom_start, custom_end, custom_negative
+                            )
+                            script_html += f"""
+                            <script>
+                                window.civitai_last_positive = {json.dumps(next_positive)};
+                                window.civitai_last_negative = {json.dumps(next_negative)};
+                                console.log('[Civitai Randomizer] Stored NEXT prompt in window variables for JS');
+                                console.log('[Civitai Randomizer] Next positive length:', window.civitai_last_positive.length);
+                                console.log('[Civitai Randomizer] Next negative length:', window.civitai_last_negative.length);
+                            </script>
+                            """
                         
                         return script_html
                     else:
