@@ -190,7 +190,6 @@ class CivitaiRandomizerScript(scripts.Script):
                 with gr.Accordion("Prompt Population Controls", open=True):
                     with gr.Row():
                         populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
-                        js_populate_btn = gr.Button("🎯 JS Populate Fields", variant="secondary", size="lg")
                     with gr.Row():
                         generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg")
                     
@@ -253,7 +252,7 @@ class CivitaiRandomizerScript(scripts.Script):
                     return status_html, queue_html
                 
                 def populate_prompt_fields(custom_start, custom_end, custom_negative):
-                    """Get next prompt pair and store the following one for JS access"""
+                    """Get next prompt pair and populate the main UI fields"""
                     pair = self.get_next_prompt_pair()
                     if pair:
                         # Combine with custom text
@@ -270,26 +269,45 @@ class CivitaiRandomizerScript(scripts.Script):
                         self.last_populated_negative = negative
                         
                         remaining = len(self.prompt_queue) - self.queue_index
-                        status_msg = f"✅ Prompts generated! Queue: {remaining} remaining"
+                        status_msg = f"✅ Prompts populated! Queue: {remaining} remaining"
                         
-                        # Store the NEXT prompt in window variables for JS access
-                        script_html = f"<div style='color: green; font-weight: bold;'>{status_msg}</div>"
-                        
-                        # Get the next prompt (without advancing the index) and store it
-                        if self.queue_index < len(self.prompt_queue):
-                            next_pair = self.prompt_queue[self.queue_index]
-                            next_positive, next_negative = self.combine_prompt_pair(
-                                next_pair, custom_start, custom_end, custom_negative
-                            )
-                            script_html += f"""
-                            <script>
-                                window.civitai_last_positive = {json.dumps(next_positive)};
-                                window.civitai_last_negative = {json.dumps(next_negative)};
-                                console.log('[Civitai Randomizer] Stored NEXT prompt in window variables for JS');
-                                console.log('[Civitai Randomizer] Next positive length:', window.civitai_last_positive.length);
-                                console.log('[Civitai Randomizer] Next negative length:', window.civitai_last_negative.length);
-                            </script>
-                            """
+                        # Return HTML with embedded JavaScript to populate main fields
+                        script_html = f"""
+                        <div style='color: green; font-weight: bold;'>{status_msg}</div>
+                        <script>
+                            setTimeout(() => {{
+                                console.log('[Civitai Randomizer] Populating main prompt fields...');
+                                
+                                // Use the same working approach as the test button
+                                let positiveField = document.querySelector('#txt2img_prompt textarea');
+                                let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
+                                
+                                if (!positiveField) {{
+                                    positiveField = document.querySelector('#img2img_prompt textarea');
+                                }}
+                                if (!negativeField) {{
+                                    negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                                }}
+                                
+                                if (positiveField && negativeField) {{
+                                    const positive_prompt = {json.dumps(positive)};
+                                    const negative_prompt = {json.dumps(negative)};
+                                    
+                                    positiveField.value = positive_prompt;
+                                    negativeField.value = negative_prompt;
+                                    
+                                    ['input', 'change'].forEach(eventType => {{
+                                        positiveField.dispatchEvent(new Event(eventType, {{bubbles: true}}));
+                                        negativeField.dispatchEvent(new Event(eventType, {{bubbles: true}}));
+                                    }});
+                                    
+                                    console.log('[Civitai Randomizer] ✅ Main fields populated successfully!');
+                                }} else {{
+                                    console.log('[Civitai Randomizer] ❌ Could not find main prompt fields');
+                                }}
+                            }}, 200);
+                        </script>
+                        """
                         
                         return script_html
                     else:
@@ -370,52 +388,7 @@ class CivitaiRandomizerScript(scripts.Script):
                         print(f"[Civitai Randomizer] No prompts available in queue - need to fetch prompts first!")
                         return "❌ No prompts available - fetch some prompts first!", "NO_PROMPTS_AVAILABLE", "NO_PROMPTS_AVAILABLE"
                 
-                # Bind the JavaScript populate button - use the exact same approach as test button
-                js_populate_btn.click(
-                    lambda: "Populating fields with JavaScript...",
-                    outputs=[prompt_queue_status],
-                    _js="""
-                    function() {
-                        console.log('[Civitai Randomizer] JS populate button clicked!');
-                        
-                        setTimeout(() => {
-                            // Use the exact same working approach as the test button
-                            let positiveField = document.querySelector('#txt2img_prompt textarea');
-                            let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
-                            
-                            if (!positiveField) {
-                                positiveField = document.querySelector('#img2img_prompt textarea');
-                            }
-                            if (!negativeField) {
-                                negativeField = document.querySelector('#img2img_neg_prompt textarea');
-                            }
-                            
-                            if (positiveField && negativeField) {
-                                // Get the prompts stored by the populate button
-                                const positive_prompt = window.civitai_last_positive || 'No positive prompt - click 🎲 Populate button first!';
-                                const negative_prompt = window.civitai_last_negative || 'No negative prompt - click 🎲 Populate button first!';
-                                
-                                positiveField.value = positive_prompt;
-                                negativeField.value = negative_prompt;
-                                
-                                ['input', 'change'].forEach(eventType => {
-                                    positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
-                                    negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
-                                });
-                                
-                                console.log('[Civitai Randomizer] ✅ Fields populated successfully!');
-                                console.log('[Civitai Randomizer] Positive:', positive_prompt.substring(0, 50) + '...');
-                                console.log('[Civitai Randomizer] Negative:', negative_prompt.substring(0, 50) + '...');
-                            } else {
-                                console.log('[Civitai Randomizer] ❌ Could not find prompt fields');
-                            }
-                        }, 100);
-                        
-                        return [];
-                    }
-                    """
-                )
-                print(f"[Civitai Randomizer] ✅ JavaScript button bound successfully")
+
                 
                 # Also bind the original populate button for console output
                 populate_btn.click(
@@ -423,7 +396,7 @@ class CivitaiRandomizerScript(scripts.Script):
                     inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
                     outputs=[prompt_queue_status]
                 )
-                print(f"[Civitai Randomizer] ✅ Original populate button bound successfully")
+                print(f"[Civitai Randomizer] ✅ Populate button bound successfully")
                 
                 # Add a simple test button to verify JavaScript works
                 test_status = gr.Textbox(visible=False)
