@@ -14,7 +14,9 @@ from typing import List, Dict, Optional, Tuple, Any
 class CivitaiRandomizerScript(scripts.Script):
     def __init__(self):
         self.api_key = ""
-        self.cached_prompts = []
+        self.cached_prompts = []  # Legacy for compatibility
+        self.prompt_queue = []    # New: stores {'positive': str, 'negative': str} pairs
+        self.queue_index = 0
         self.last_api_call = 0
         self.api_cooldown = 5  # seconds between API calls
         self.available_loras = []
@@ -138,11 +140,28 @@ class CivitaiRandomizerScript(scripts.Script):
                         info="Maximum number of LORAs to apply randomly"
                     )
                 
+                # Main Action Buttons
+                with gr.Accordion("Prompt Population Controls", open=True):
+                    with gr.Row():
+                        populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
+                        generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg")
+                    
+                    prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
+                    
+                    with gr.Row():
+                        custom_negative_prompt = gr.Textbox(
+                            label="Custom Negative Prompt",
+                            placeholder="Text to add to negative prompts (optional)",
+                            lines=2,
+                            info="This will be combined with Civitai negative prompts"
+                        )
+                
                 # Status and Cache Management
-                with gr.Row():
-                    cache_status = gr.HTML("Cached prompts: 0")
-                    clear_cache_btn = gr.Button("Clear Cache", variant="secondary", size="sm")
-                    fetch_prompts_btn = gr.Button("Fetch New Prompts", variant="primary", size="sm")
+                with gr.Accordion("Advanced Controls", open=False):
+                    with gr.Row():
+                        cache_status = gr.HTML("Cached prompts: 0")
+                        clear_cache_btn = gr.Button("Clear Cache", variant="secondary", size="sm")
+                        fetch_prompts_btn = gr.Button("Fetch New Prompts", variant="primary", size="sm")
                 
                 # Event handlers
                 def test_api_connection(api_key):
@@ -159,12 +178,52 @@ class CivitaiRandomizerScript(scripts.Script):
                 
                 def clear_prompt_cache():
                     self.cached_prompts = []
-                    return "Cached prompts: 0"
+                    self.prompt_queue = []
+                    self.queue_index = 0
+                    return "Cached prompts: 0", "Prompt queue: 0 prompts available"
                 
                 def fetch_new_prompts(api_key, nsfw_filter, keyword_filter, sort_method):
                     self.api_key = api_key
                     prompts = self.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
-                    return f"Cached prompts: {len(self.cached_prompts)}"
+                    return f"Cached prompts: {len(self.cached_prompts)}", f"Prompt queue: {len(self.prompt_queue)} prompts available"
+                
+                def populate_prompt_fields(custom_start, custom_end, custom_negative):
+                    """Get next prompt pair and populate main fields"""
+                    pair = self.get_next_prompt_pair()
+                    if pair:
+                        # Combine with custom text
+                        positive, negative = self.combine_prompt_pair(
+                            pair, custom_start, custom_end, custom_negative
+                        )
+                        
+                        # Store for JavaScript access
+                        import json
+                        js_code = f"""
+                        <script>
+                        window.civitai_last_prompts = {json.dumps({'positive': positive, 'negative': negative})};
+                        </script>
+                        """
+                        
+                        # Try to inject JavaScript
+                        try:
+                            # This is a bit of a hack but should work
+                            shared.html_messages = getattr(shared, 'html_messages', [])
+                            shared.html_messages.append(js_code)
+                        except:
+                            pass
+                        
+                        print(f"Populated prompts:")
+                        print(f"  Positive: {positive[:50]}...")
+                        print(f"  Negative: {negative[:50]}...")
+                        
+                        return f"✓ Populated fields! Queue: {len(self.prompt_queue) - self.queue_index} prompts remaining"
+                    else:
+                        return "❌ No prompts available - fetch some prompts first!"
+                
+                def trigger_generate_forever():
+                    """Trigger the native Generate Forever functionality"""
+                    # This will be handled by JavaScript integration
+                    return "Generate Forever activated! Each generation will use the next Civitai prompt."
                 
                 # Bind events
                 test_api_btn.click(
@@ -186,47 +245,96 @@ class CivitaiRandomizerScript(scripts.Script):
                 
                 clear_cache_btn.click(
                     clear_prompt_cache,
-                    outputs=[cache_status]
+                    outputs=[cache_status, prompt_queue_status]
                 )
                 
                 fetch_prompts_btn.click(
                     fetch_new_prompts,
                     inputs=[api_key_input, nsfw_filter, keyword_filter, sort_method],
-                    outputs=[cache_status]
+                    outputs=[cache_status, prompt_queue_status]
                 )
                 
                 # Initialize LORA list on load
                 self.refresh_lora_list_on_load(lora_selection)
+                
+                # Store references for the main UI integration
+                self.populate_btn = populate_btn
+                self.generate_forever_btn = generate_forever_btn
+                self.prompt_queue_status = prompt_queue_status
+                self.custom_negative_prompt = custom_negative_prompt
+        
+        # Store component references for external access
+        script_callbacks.on_ui_tabs(lambda: self.register_main_ui_components())
+        
+        # Add button bindings  
+        populate_btn.click(
+            populate_prompt_fields,
+            inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+            outputs=[prompt_queue_status],
+            _js="""
+            function(custom_start, custom_end, custom_negative) {
+                // Get the next prompt pair from backend first
+                setTimeout(() => {
+                    // Try to find and update main prompt fields
+                    const positiveField = document.querySelector('#txt2img_prompt textarea') || 
+                                         document.querySelector('#img2img_prompt textarea') ||
+                                         document.querySelector('textarea[placeholder*="Prompt"]');
+                    const negativeField = document.querySelector('#txt2img_neg_prompt textarea') || 
+                                         document.querySelector('#img2img_neg_prompt textarea') ||
+                                         document.querySelector('textarea[placeholder*="Negative"]');
+                    
+                    // This will be populated by the backend response
+                    const extensionData = window.civitai_last_prompts;
+                    if (extensionData && positiveField) {
+                        positiveField.value = extensionData.positive || '';
+                        positiveField.dispatchEvent(new Event('input', {bubbles: true}));
+                        positiveField.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                    if (extensionData && negativeField) {
+                        negativeField.value = extensionData.negative || '';
+                        negativeField.dispatchEvent(new Event('input', {bubbles: true}));
+                        negativeField.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                }, 100);
+                
+                return [custom_start, custom_end, custom_negative];
+            }
+            """
+        )
         
         return [
             enable_randomizer, bypass_prompts, nsfw_filter, keyword_filter, sort_method,
             custom_prompt_start, custom_prompt_end, enable_lora_randomizer, lora_selection,
-            lora_strength_min, lora_strength_max, max_loras_per_gen, api_key_input
+            lora_strength_min, lora_strength_max, max_loras_per_gen, api_key_input, custom_negative_prompt
         ]
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         """Called before each sampling operation - integrates with Generate Forever"""
-        if len(args) < 13:
+        if len(args) < 14:
             return
             
         (enable_randomizer, bypass_prompts, nsfw_filter, keyword_filter, sort_method,
          custom_prompt_start, custom_prompt_end, enable_lora_randomizer, lora_selection,
-         lora_strength_min, lora_strength_max, max_loras_per_gen, api_key) = args[:13]
+         lora_strength_min, lora_strength_max, max_loras_per_gen, api_key, custom_negative_prompt) = args[:14]
         
         if not enable_randomizer:
             return
         
         self.api_key = api_key or self.api_key
         original_prompt = p.prompt
+        original_negative = getattr(p, 'negative_prompt', '')
         
-        # Generate new prompt
-        new_prompt = self.generate_random_prompt(
-            bypass_prompts, nsfw_filter, keyword_filter, sort_method,
-            custom_prompt_start, custom_prompt_end
-        )
-        
-        if new_prompt:
-            p.prompt = new_prompt
+        # Get next prompt pair if not bypassing
+        if not bypass_prompts:
+            pair = self.get_next_prompt_pair()
+            if pair:
+                positive, negative = self.combine_prompt_pair(
+                    pair, custom_prompt_start, custom_prompt_end, custom_negative_prompt
+                )
+                p.prompt = positive
+                p.negative_prompt = negative
+            else:
+                print("No prompts available in queue - using original prompts")
         
         # Apply random LORAs
         if enable_lora_randomizer and lora_selection:
@@ -234,7 +342,10 @@ class CivitaiRandomizerScript(scripts.Script):
                 p, lora_selection, lora_strength_min, lora_strength_max, max_loras_per_gen
             )
         
-        print(f"Civitai Randomizer: Updated prompt from '{original_prompt[:50]}...' to '{p.prompt[:50]}...'")
+        print(f"Civitai Randomizer: Updated prompts")
+        print(f"  Positive: '{original_prompt[:30]}...' → '{p.prompt[:30]}...'")
+        if hasattr(p, 'negative_prompt'):
+            print(f"  Negative: '{original_negative[:30]}...' → '{p.negative_prompt[:30]}...'")
 
     def load_config(self):
         """Load configuration from file"""
@@ -258,6 +369,35 @@ class CivitaiRandomizerScript(scripts.Script):
                 json.dump(config, f, indent=2)
         except Exception as e:
             print(f"Failed to save config: {e}")
+
+    def register_main_ui_components(self):
+        """Register main UI components for prompt field updates"""
+        try:
+            # This will be called after UI is built to get references
+            pass
+        except Exception as e:
+            print(f"Failed to register main UI components: {e}")
+
+    def update_main_prompt_fields(self, positive: str, negative: str):
+        """Update the main prompt fields with new content"""
+        try:
+            # Method 1: Try to update through shared state
+            if hasattr(shared, 'state'):
+                if hasattr(shared.state, 'txt2img_prompt'):
+                    shared.state.txt2img_prompt = positive
+                if hasattr(shared.state, 'txt2img_neg_prompt'):
+                    shared.state.txt2img_neg_prompt = negative
+            
+            # Method 2: Store for JavaScript access
+            self.last_populated_positive = positive
+            self.last_populated_negative = negative
+            
+            print(f"Updated main prompt fields:")
+            print(f"  Positive: {positive[:50]}...")
+            print(f"  Negative: {negative[:50]}...")
+            
+        except Exception as e:
+            print(f"Failed to update main prompt fields: {e}")
 
     def test_civitai_api(self, api_key: str) -> str:
         """Test connection to Civitai API"""
@@ -368,16 +508,25 @@ class CivitaiRandomizerScript(scripts.Script):
                     invalid_meta += 1
                     continue
                 
-                prompt = meta.get('prompt', '')
+                positive_prompt = meta.get('prompt', '')
+                negative_prompt = meta.get('negativePrompt', '')
                 
-                if prompt and isinstance(prompt, str):
-                    # Apply keyword filtering
+                if positive_prompt and isinstance(positive_prompt, str):
+                    # Apply keyword filtering to positive prompt
                     if keyword_filter:
                         keywords = [k.strip().lower() for k in keyword_filter.split(',')]
-                        if not any(keyword in prompt.lower() for keyword in keywords):
+                        if not any(keyword in positive_prompt.lower() for keyword in keywords):
                             continue
                     
-                    prompts.append(prompt)
+                    # Create prompt pair
+                    prompt_pair = {
+                        'positive': self.clean_prompt(positive_prompt),
+                        'negative': self.clean_prompt(negative_prompt) if negative_prompt else ''
+                    }
+                    
+                    # Add to both new queue and legacy list
+                    self.prompt_queue.append(prompt_pair)
+                    prompts.append(positive_prompt)  # Legacy compatibility
             
             self.cached_prompts.extend(prompts)
             self.cached_prompts = list(set(self.cached_prompts))  # Remove duplicates
@@ -386,11 +535,60 @@ class CivitaiRandomizerScript(scripts.Script):
             if invalid_items > 0 or invalid_meta > 0:
                 print(f"Skipped {invalid_items} invalid items and {invalid_meta} items with no metadata")
             
+            # Reset queue index when new prompts are added
+            if len(self.prompt_queue) > 0:
+                self.queue_index = 0
+            
             return prompts
             
         except Exception as e:
             print(f"Error fetching Civitai prompts: {e}")
             return []
+
+    def get_next_prompt_pair(self) -> Dict[str, str]:
+        """Get the next prompt pair from the queue"""
+        if not self.prompt_queue:
+            print("No prompts in queue - fetch some prompts first!")
+            return None
+            
+        if self.queue_index >= len(self.prompt_queue):
+            print("Reached end of prompt queue - fetching more prompts...")
+            # Auto-fetch more prompts when queue is exhausted
+            self.fetch_civitai_prompts("Include All", "", "Most Reactions")
+            self.queue_index = 0
+            
+        if self.prompt_queue and self.queue_index < len(self.prompt_queue):
+            pair = self.prompt_queue[self.queue_index]
+            self.queue_index += 1
+            return pair
+            
+        return None
+
+    def combine_prompt_pair(self, pair: Dict[str, str], custom_start: str, custom_end: str, custom_negative: str) -> Tuple[str, str]:
+        """Combine Civitai prompt pair with custom text"""
+        if not pair:
+            return "", ""
+            
+        # Build positive prompt
+        positive_parts = []
+        if custom_start and custom_start.strip():
+            positive_parts.append(custom_start.strip())
+        if pair['positive']:
+            positive_parts.append(pair['positive'])
+        if custom_end and custom_end.strip():
+            positive_parts.append(custom_end.strip())
+        
+        # Build negative prompt
+        negative_parts = []
+        if custom_negative and custom_negative.strip():
+            negative_parts.append(custom_negative.strip())
+        if pair['negative']:
+            negative_parts.append(pair['negative'])
+            
+        positive = ', '.join(positive_parts) if positive_parts else ""
+        negative = ', '.join(negative_parts) if negative_parts else ""
+        
+        return positive, negative
 
     def generate_random_prompt(self, bypass_prompts: bool, nsfw_filter: str, 
                              keyword_filter: str, sort_method: str,
