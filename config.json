@@ -1,0 +1,33 @@
+{
+    "civitai_api": {
+        "base_url": "https://civitai.com/api/v1",
+        "endpoints": {
+            "images": "/images",
+            "models": "/models"
+        },
+        "default_params": {
+            "limit": 100,
+            "sort": "Most Reactions",
+            "period": "AllTime"
+        },
+        "rate_limit": {
+            "requests_per_minute": 60,
+            "cooldown_seconds": 5
+        }
+    },
+    "extension_settings": {
+        "default_nsfw_filter": "Include All",
+        "max_cached_prompts": 1000,
+        "auto_refresh_cache": true,
+        "cache_expiry_hours": 24
+    },
+    "lora_settings": {
+        "default_strength_range": [0.5, 1.0],
+        "max_loras_per_generation": 3,
+        "supported_extensions": [".safetensors", ".ckpt", ".pt"]
+    },
+    "ui_settings": {
+        "accordion_open_by_default": false,
+        "show_debug_info": false
+    }
+} 
