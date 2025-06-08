@@ -69,8 +69,8 @@ class CivitaiRandomizerScript(scripts.Script):
                 with gr.Row():
                     keyword_filter = gr.Textbox(
                         label="Keyword Filter",
-                        placeholder="Enter keywords to filter prompts (comma-separated)",
-                        info="Only fetch prompts containing these keywords"
+                        placeholder="woman, portrait, anime, landscape",
+                        info="Comma-separated keywords (OR logic): only fetch prompts containing at least one of these words"
                     )
                     sort_method = gr.Dropdown(
                         label="Sort Method",
@@ -318,24 +318,26 @@ class CivitaiRandomizerScript(scripts.Script):
             items = data.get('items', [])
             
             print(f"API response received - Total items: {len(items) if items else 0}")
-            print(f"First few items types: {[type(item).__name__ for item in (items[:3] if items else [])]}")
             
             if not items:
                 print("No items found in Civitai API response")
                 print(f"Available keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                 return []
             
+            invalid_items = 0
+            invalid_meta = 0
+            
             for item in items:
                 # Skip None items
                 if not item or not isinstance(item, dict):
-                    print(f"Skipping invalid item: {type(item)} - {str(item)[:100]}")
+                    invalid_items += 1
                     continue
                 
                 meta = item.get('meta', {})
                 
                 # Skip items with no meta or invalid meta
                 if not meta or not isinstance(meta, dict):
-                    print(f"Skipping item with invalid meta: {type(meta)} - {str(meta)[:100]}")
+                    invalid_meta += 1
                     continue
                 
                 prompt = meta.get('prompt', '')
@@ -353,6 +355,9 @@ class CivitaiRandomizerScript(scripts.Script):
             self.cached_prompts = list(set(self.cached_prompts))  # Remove duplicates
             
             print(f"Fetched {len(prompts)} new prompts from Civitai")
+            if invalid_items > 0 or invalid_meta > 0:
+                print(f"Skipped {invalid_items} invalid items and {invalid_meta} items with no metadata")
+            
             return prompts
             
         except Exception as e:

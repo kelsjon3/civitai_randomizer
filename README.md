@@ -105,9 +105,10 @@ The extension automatically integrates with Forge's "Generate Forever" feature:
 - **Bypass Mode**: Skip Civitai fetching entirely, use only custom text and LORAs
 
 #### Keyword Filtering
-- Enter comma-separated keywords to filter prompts
-- Only prompts containing at least one keyword will be used
+- Enter comma-separated keywords to filter prompts (e.g., `woman, portrait, anime`)
+- Uses OR logic: prompts containing at least one keyword will be used
 - Case-insensitive matching
+- Leave empty to fetch all prompts (no filtering)
 
 #### Cache Management
 - **View Cache Status**: See how many prompts are currently cached
