@@ -451,10 +451,11 @@ class CivitaiRandomizerScript(scripts.Script):
                 print(f"[Civitai Randomizer] ✅ Original populate button bound successfully")
                 
                 # Add a simple test button to verify JavaScript works
+                test_status = gr.Textbox(visible=False)
                 test_btn = gr.Button("🧪 Test JS (Static)", variant="secondary")
                 test_btn.click(
                     lambda: "Test completed",
-                    outputs=[prompt_queue_status],
+                    outputs=[test_status],
                     _js="""
                     function() {
                         console.log('[Civitai Randomizer] Test button clicked!');
