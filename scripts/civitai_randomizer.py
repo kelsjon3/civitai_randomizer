@@ -25,6 +25,8 @@ class CivitaiRandomizerScript(scripts.Script):
         self.config_file = os.path.join(os.path.dirname(__file__), "civitai_config.json")
         self.last_populated_positive = ""
         self.last_populated_negative = ""
+        self.last_js_positive = ""
+        self.last_js_negative = ""
         
         # Component references for main UI fields - will be set later
         self.txt2img_positive_prompt_ref = None
@@ -234,7 +236,7 @@ class CivitaiRandomizerScript(scripts.Script):
                     return f"Cached prompts: {len(self.cached_prompts)}", f"Prompt queue: {len(self.prompt_queue)} prompts available"
                 
                 def populate_prompt_fields(custom_start, custom_end, custom_negative):
-                    """Get next prompt pair and populate main UI fields using proper Gradio method"""
+                    """Get next prompt pair and return status with prompts stored in window variables"""
                     pair = self.get_next_prompt_pair()
                     if pair:
                         # Combine with custom text
@@ -250,18 +252,24 @@ class CivitaiRandomizerScript(scripts.Script):
                         self.last_populated_positive = positive
                         self.last_populated_negative = negative
                         
-                        # Return gr.update() objects for the main fields
-                        positive_update = gr.Textbox.update(value=positive)
-                        negative_update = gr.Textbox.update(value=negative)
-                        
                         remaining = len(self.prompt_queue) - self.queue_index
-                        status_msg = f"✅ Prompts populated! Queue: {remaining} remaining"
+                        status_msg = f"✅ Prompts generated! Queue: {remaining} remaining"
                         
-                        # Return updates for: [status, positive_field, negative_field]
-                        return status_msg, positive_update, negative_update
+                        # Return HTML with script to store prompts in window variables
+                        script_html = f"""
+                        <div style='color: green; font-weight: bold;'>{status_msg}</div>
+                        <script>
+                            window.civitai_last_positive = {json.dumps(positive)};
+                            window.civitai_last_negative = {json.dumps(negative)};
+                            console.log('[Civitai Randomizer] Stored prompts in window variables');
+                            console.log('[Civitai Randomizer] Positive length:', window.civitai_last_positive.length);
+                            console.log('[Civitai Randomizer] Negative length:', window.civitai_last_negative.length);
+                        </script>
+                        """
+                        
+                        return script_html
                     else:
-                        empty_update = gr.Textbox.update()
-                        return "❌ No prompts available - fetch some prompts first!", empty_update, empty_update
+                        return "❌ No prompts available - fetch some prompts first!"
                 
                 def trigger_generate_forever():
                     """Trigger the native Generate Forever functionality"""
@@ -338,17 +346,12 @@ class CivitaiRandomizerScript(scripts.Script):
                         print(f"[Civitai Randomizer] No prompts available in queue - need to fetch prompts first!")
                         return "❌ No prompts available - fetch some prompts first!", "NO_PROMPTS_AVAILABLE", "NO_PROMPTS_AVAILABLE"
                 
-                # Create hidden outputs to pass prompts to JavaScript
-                js_positive_output = gr.Textbox(visible=False)
-                js_negative_output = gr.Textbox(visible=False)
-                
-                # Bind the JavaScript populate button - use the working test method
+                # Bind the JavaScript populate button - use the exact same approach as test button
                 js_populate_btn.click(
-                    lambda custom_start, custom_end, custom_negative: self.generate_prompts_for_js(custom_start, custom_end, custom_negative),
-                    inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+                    lambda: "Populating fields with JavaScript...",
                     outputs=[prompt_queue_status],
                     _js="""
-                    function(custom_start, custom_end, custom_negative) {
+                    function() {
                         console.log('[Civitai Randomizer] JS populate button clicked!');
                         
                         setTimeout(() => {
@@ -364,9 +367,9 @@ class CivitaiRandomizerScript(scripts.Script):
                             }
                             
                             if (positiveField && negativeField) {
-                                // Get the prompts that were stored by the Python function
-                                const positive_prompt = window.civitai_positive_prompt || 'No positive prompt generated';
-                                const negative_prompt = window.civitai_negative_prompt || 'No negative prompt generated';
+                                // Get the prompts stored by the populate button
+                                const positive_prompt = window.civitai_last_positive || 'No positive prompt - click 🎲 Populate button first!';
+                                const negative_prompt = window.civitai_last_negative || 'No negative prompt - click 🎲 Populate button first!';
                                 
                                 positiveField.value = positive_prompt;
                                 negativeField.value = negative_prompt;
@@ -382,9 +385,9 @@ class CivitaiRandomizerScript(scripts.Script):
                             } else {
                                 console.log('[Civitai Randomizer] ❌ Could not find prompt fields');
                             }
-                        }, 200);
+                        }, 100);
                         
-                        return [custom_start, custom_end, custom_negative];
+                        return [];
                     }
                     """
                 )
@@ -540,9 +543,9 @@ class CivitaiRandomizerScript(scripts.Script):
         except Exception as e:
             print(f"Failed to update main prompt fields: {e}")
 
-    def generate_prompts_for_js(self, custom_start: str, custom_end: str, custom_negative: str) -> str:
-        """Generate prompts and store them in window variables for JavaScript to use"""
-        print(f"[Civitai Randomizer] generate_prompts_for_js called")
+    def generate_prompts_with_outputs(self, custom_start: str, custom_end: str, custom_negative: str) -> Tuple[str, str, str]:
+        """Generate prompts and return them as outputs for JavaScript to use"""
+        print(f"[Civitai Randomizer] generate_prompts_with_outputs called")
         print(f"[Civitai Randomizer] Queue length: {len(self.prompt_queue)}")
         print(f"[Civitai Randomizer] Queue index: {self.queue_index}")
         
@@ -556,20 +559,11 @@ class CivitaiRandomizerScript(scripts.Script):
             remaining = len(self.prompt_queue) - self.queue_index
             status_msg = f"✅ Generated prompts! Queue: {remaining} remaining"
             
-            # Store prompts in window variables for JavaScript to access
-            # We'll inject this as a script tag in the HTML
-            script_injection = f"""
-            <script>
-                window.civitai_positive_prompt = {json.dumps(positive)};
-                window.civitai_negative_prompt = {json.dumps(negative)};
-                console.log('[Civitai Randomizer] Stored prompts in window variables');
-            </script>
-            """
-            
-            return status_msg + script_injection
+            print(f"[Civitai Randomizer] Returning prompts as outputs for JS access")
+            return status_msg, positive, negative
         else:
             print(f"[Civitai Randomizer] No prompts available in queue")
-            return "❌ No prompts available - fetch some prompts first!"
+            return "❌ No prompts available - fetch some prompts first!", "", ""
 
     def test_civitai_api(self, api_key: str) -> str:
         """Test connection to Civitai API"""
