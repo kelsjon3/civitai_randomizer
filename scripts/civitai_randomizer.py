@@ -317,16 +317,30 @@ class CivitaiRandomizerScript(scripts.Script):
             prompts = []
             items = data.get('items', [])
             
+            print(f"API response received - Total items: {len(items) if items else 0}")
+            print(f"First few items types: {[type(item).__name__ for item in (items[:3] if items else [])]}")
+            
             if not items:
                 print("No items found in Civitai API response")
                 print(f"Available keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                 return []
             
             for item in items:
+                # Skip None items
+                if not item or not isinstance(item, dict):
+                    print(f"Skipping invalid item: {type(item)} - {str(item)[:100]}")
+                    continue
+                
                 meta = item.get('meta', {})
+                
+                # Skip items with no meta or invalid meta
+                if not meta or not isinstance(meta, dict):
+                    print(f"Skipping item with invalid meta: {type(meta)} - {str(meta)[:100]}")
+                    continue
+                
                 prompt = meta.get('prompt', '')
                 
-                if prompt:
+                if prompt and isinstance(prompt, str):
                     # Apply keyword filtering
                     if keyword_filter:
                         keywords = [k.strip().lower() for k in keyword_filter.split(',')]
