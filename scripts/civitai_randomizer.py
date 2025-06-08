@@ -22,12 +22,29 @@ class CivitaiRandomizerScript(scripts.Script):
         self.available_loras = []
         self.selected_loras = []
         self.config_file = os.path.join(os.path.dirname(__file__), "civitai_config.json")
+        self.last_populated_positive = ""
+        self.last_populated_negative = ""
+        
+        # Component references for main UI fields - THE KEY SOLUTION
+        self.txt2img_positive_prompt_ref = None
+        self.txt2img_negative_prompt_ref = None
+        self.img2img_positive_prompt_ref = None  
+        self.img2img_negative_prompt_ref = None
+        
+        # Register callbacks to capture main UI components using on_after_component
+        # This is the proper way according to the research document
+        self.on_after_component(self._capture_txt2img_positive, elem_id="txt2img_prompt")
+        self.on_after_component(self._capture_txt2img_negative, elem_id="txt2img_neg_prompt")
+        self.on_after_component(self._capture_img2img_positive, elem_id="img2img_prompt")
+        self.on_after_component(self._capture_img2img_negative, elem_id="img2img_neg_prompt")
+        
         self.load_config()
         
     def title(self):
         return "Civitai Randomizer"
 
     def show(self, is_img2img):
+        # Return AlwaysVisible to ensure our component capture callbacks run during UI build
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
@@ -188,7 +205,7 @@ class CivitaiRandomizerScript(scripts.Script):
                     return f"Cached prompts: {len(self.cached_prompts)}", f"Prompt queue: {len(self.prompt_queue)} prompts available"
                 
                 def populate_prompt_fields(custom_start, custom_end, custom_negative):
-                    """Get next prompt pair and populate main fields"""
+                    """Get next prompt pair and populate main UI fields using proper Gradio method"""
                     pair = self.get_next_prompt_pair()
                     if pair:
                         # Combine with custom text
@@ -196,29 +213,28 @@ class CivitaiRandomizerScript(scripts.Script):
                             pair, custom_start, custom_end, custom_negative
                         )
                         
-                        # Store for JavaScript access
-                        import json
-                        js_code = f"""
-                        <script>
-                        window.civitai_last_prompts = {json.dumps({'positive': positive, 'negative': negative})};
-                        </script>
-                        """
+                        print(f"[Civitai Randomizer] Populating main prompt fields:")
+                        print(f"  Positive: {positive[:100]}...")
+                        print(f"  Negative: {negative[:100]}...")
                         
-                        # Try to inject JavaScript
-                        try:
-                            # This is a bit of a hack but should work
-                            shared.html_messages = getattr(shared, 'html_messages', [])
-                            shared.html_messages.append(js_code)
-                        except:
-                            pass
+                        # Return gr.update() objects for each field based on current tab
+                        if is_img2img:
+                            # img2img tab
+                            positive_update = gr.Textbox.update(value=positive) if self.img2img_positive_prompt_ref else None
+                            negative_update = gr.Textbox.update(value=negative) if self.img2img_negative_prompt_ref else None
+                        else:
+                            # txt2img tab  
+                            positive_update = gr.Textbox.update(value=positive) if self.txt2img_positive_prompt_ref else None
+                            negative_update = gr.Textbox.update(value=negative) if self.txt2img_negative_prompt_ref else None
                         
-                        print(f"Populated prompts:")
-                        print(f"  Positive: {positive[:50]}...")
-                        print(f"  Negative: {negative[:50]}...")
+                        remaining = len(self.prompt_queue) - self.queue_index
+                        status_msg = f"✅ Prompts populated! Queue: {remaining} remaining"
                         
-                        return f"✓ Populated fields! Queue: {len(self.prompt_queue) - self.queue_index} prompts remaining"
+                        # Return updates for: [status, positive_field, negative_field]
+                        return status_msg, positive_update, negative_update
                     else:
-                        return "❌ No prompts available - fetch some prompts first!"
+                        empty_update = gr.Textbox.update()
+                        return "❌ No prompts available - fetch some prompts first!", empty_update, empty_update
                 
                 def trigger_generate_forever():
                     """Trigger the native Generate Forever functionality"""
@@ -266,84 +282,31 @@ class CivitaiRandomizerScript(scripts.Script):
         # Store component references for external access
         script_callbacks.on_ui_tabs(lambda: self.register_main_ui_components())
         
-        # Add button bindings  
-        populate_btn.click(
-            populate_prompt_fields,
-            inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-            outputs=[prompt_queue_status],
-            _js="""
-            function(custom_start, custom_end, custom_negative) {
-                console.log('Civitai: Populate button clicked');
-                
-                // Wait for backend response, then populate fields
-                setTimeout(() => {
-                    console.log('Civitai: Looking for prompt fields...');
-                    
-                    // More comprehensive field detection
-                    let positiveField = null;
-                    let negativeField = null;
-                    
-                    // Method 1: Try specific IDs
-                    positiveField = document.querySelector('#txt2img_prompt textarea') || 
-                                   document.querySelector('#img2img_prompt textarea');
-                    negativeField = document.querySelector('#txt2img_neg_prompt textarea') || 
-                                   document.querySelector('#img2img_neg_prompt textarea');
-                    
-                    // Method 2: Try by component structure
-                    if (!positiveField) {
-                        const allTextareas = document.querySelectorAll('textarea');
-                        for (let textarea of allTextareas) {
-                            const label = textarea.parentElement?.querySelector('label');
-                            if (label && label.textContent.toLowerCase().includes('prompt') && 
-                                !label.textContent.toLowerCase().includes('negative')) {
-                                positiveField = textarea;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (!negativeField) {
-                        const allTextareas = document.querySelectorAll('textarea');
-                        for (let textarea of allTextareas) {
-                            const label = textarea.parentElement?.querySelector('label');
-                            if (label && label.textContent.toLowerCase().includes('negative')) {
-                                negativeField = textarea;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    console.log('Civitai: Found fields:', {
-                        positive: !!positiveField,
-                        negative: !!negativeField
-                    });
-                    
-                    // For now, let's just show debug info
-                    if (positiveField) {
-                        console.log('Civitai: Positive field found:', positiveField);
-                        // positiveField.value = 'TEST POSITIVE PROMPT FROM CIVITAI';
-                        // positiveField.dispatchEvent(new Event('input', {bubbles: true}));
-                    }
-                    
-                    if (negativeField) {
-                        console.log('Civitai: Negative field found:', negativeField);
-                        // negativeField.value = 'TEST NEGATIVE PROMPT FROM CIVITAI';
-                        // negativeField.dispatchEvent(new Event('input', {bubbles: true}));
-                    }
-                    
-                    if (!positiveField && !negativeField) {
-                        console.log('Civitai: No fields found. Available textareas:');
-                        document.querySelectorAll('textarea').forEach((ta, i) => {
-                            console.log(`  ${i}: ${ta.placeholder || 'no placeholder'}`);
-                        });
-                    }
-                    
-                }, 500);
-                
-                return [custom_start, custom_end, custom_negative];
-            }
-            """
-        )
+        # Add button bindings using proper Gradio outputs
+        # Determine which components to target based on current tab
+        if is_img2img:
+            target_positive = self.img2img_positive_prompt_ref  
+            target_negative = self.img2img_negative_prompt_ref
+        else:
+            target_positive = self.txt2img_positive_prompt_ref
+            target_negative = self.txt2img_negative_prompt_ref
+        
+        # Only bind if we have the component references
+        if target_positive and target_negative:
+            populate_btn.click(
+                populate_prompt_fields,
+                inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+                outputs=[prompt_queue_status, target_positive, target_negative]
+            )
+            print(f"[Civitai Randomizer] Button bound to {'img2img' if is_img2img else 'txt2img'} components")
+        else:
+            # Fallback binding without main field updates
+            populate_btn.click(
+                populate_prompt_fields,
+                inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+                outputs=[prompt_queue_status]
+            )
+            print(f"[Civitai Randomizer] Warning: Main UI components not captured, button will only update status")
         
         return [
             enable_randomizer, bypass_prompts, nsfw_filter, keyword_filter, sort_method,
@@ -721,6 +684,27 @@ class CivitaiRandomizerScript(scripts.Script):
                 p.prompt = lora_text
             
             print(f"Applied random LORAs: {lora_text}")
+
+    # Component capture callbacks - store references to main UI fields
+    def _capture_txt2img_positive(self, component, **_kwargs):
+        """Capture reference to txt2img positive prompt field"""
+        self.txt2img_positive_prompt_ref = component
+        print(f"[Civitai Randomizer] Captured txt2img positive prompt component: {type(component)}")
+    
+    def _capture_txt2img_negative(self, component, **_kwargs):
+        """Capture reference to txt2img negative prompt field"""
+        self.txt2img_negative_prompt_ref = component
+        print(f"[Civitai Randomizer] Captured txt2img negative prompt component: {type(component)}")
+    
+    def _capture_img2img_positive(self, component, **_kwargs):
+        """Capture reference to img2img positive prompt field"""
+        self.img2img_positive_prompt_ref = component
+        print(f"[Civitai Randomizer] Captured img2img positive prompt component: {type(component)}")
+    
+    def _capture_img2img_negative(self, component, **_kwargs):
+        """Capture reference to img2img negative prompt field"""
+        self.img2img_negative_prompt_ref = component
+        print(f"[Civitai Randomizer] Captured img2img negative prompt component: {type(component)}")
 
 # Register the script
 def on_ui_tabs():
