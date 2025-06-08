@@ -247,9 +247,16 @@ class CivitaiRandomizerScript(scripts.Script):
             )
             
             if response.status_code == 200:
-                return "<span style='color: green;'>✓ API connection successful</span>"
+                try:
+                    data = response.json()
+                    if data and 'items' in data:
+                        return "<span style='color: green;'>✓ API connection successful</span>"
+                    else:
+                        return f"<span style='color: orange;'>⚠ API connected but unexpected response format</span>"
+                except:
+                    return f"<span style='color: orange;'>⚠ API connected but invalid JSON response</span>"
             else:
-                return f"<span style='color: red;'>✗ API error: {response.status_code}</span>"
+                return f"<span style='color: red;'>✗ API error: {response.status_code} - {response.text[:100]}</span>"
                 
         except Exception as e:
             return f"<span style='color: red;'>✗ Connection error: {str(e)}</span>"
@@ -291,12 +298,31 @@ class CivitaiRandomizerScript(scripts.Script):
             
             if response.status_code != 200:
                 print(f"Civitai API error: {response.status_code}")
+                print(f"Response content: {response.text[:500]}")
                 return []
             
-            data = response.json()
-            prompts = []
+            # Parse JSON response with error handling
+            try:
+                data = response.json()
+            except (ValueError, requests.exceptions.JSONDecodeError) as e:
+                print(f"Failed to parse JSON response: {e}")
+                print(f"Response content: {response.text[:500]}")
+                return []
             
-            for item in data.get('items', []):
+            if not data or not isinstance(data, dict):
+                print("Invalid response format from Civitai API")
+                print(f"Response type: {type(data)}, content: {str(data)[:200]}")
+                return []
+            
+            prompts = []
+            items = data.get('items', [])
+            
+            if not items:
+                print("No items found in Civitai API response")
+                print(f"Available keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                return []
+            
+            for item in items:
                 meta = item.get('meta', {})
                 prompt = meta.get('prompt', '')
                 
