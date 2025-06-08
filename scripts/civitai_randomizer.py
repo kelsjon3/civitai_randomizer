@@ -273,29 +273,72 @@ class CivitaiRandomizerScript(scripts.Script):
             outputs=[prompt_queue_status],
             _js="""
             function(custom_start, custom_end, custom_negative) {
-                // Get the next prompt pair from backend first
+                console.log('Civitai: Populate button clicked');
+                
+                // Wait for backend response, then populate fields
                 setTimeout(() => {
-                    // Try to find and update main prompt fields
-                    const positiveField = document.querySelector('#txt2img_prompt textarea') || 
-                                         document.querySelector('#img2img_prompt textarea') ||
-                                         document.querySelector('textarea[placeholder*="Prompt"]');
-                    const negativeField = document.querySelector('#txt2img_neg_prompt textarea') || 
-                                         document.querySelector('#img2img_neg_prompt textarea') ||
-                                         document.querySelector('textarea[placeholder*="Negative"]');
+                    console.log('Civitai: Looking for prompt fields...');
                     
-                    // This will be populated by the backend response
-                    const extensionData = window.civitai_last_prompts;
-                    if (extensionData && positiveField) {
-                        positiveField.value = extensionData.positive || '';
-                        positiveField.dispatchEvent(new Event('input', {bubbles: true}));
-                        positiveField.dispatchEvent(new Event('change', {bubbles: true}));
+                    // More comprehensive field detection
+                    let positiveField = null;
+                    let negativeField = null;
+                    
+                    // Method 1: Try specific IDs
+                    positiveField = document.querySelector('#txt2img_prompt textarea') || 
+                                   document.querySelector('#img2img_prompt textarea');
+                    negativeField = document.querySelector('#txt2img_neg_prompt textarea') || 
+                                   document.querySelector('#img2img_neg_prompt textarea');
+                    
+                    // Method 2: Try by component structure
+                    if (!positiveField) {
+                        const allTextareas = document.querySelectorAll('textarea');
+                        for (let textarea of allTextareas) {
+                            const label = textarea.parentElement?.querySelector('label');
+                            if (label && label.textContent.toLowerCase().includes('prompt') && 
+                                !label.textContent.toLowerCase().includes('negative')) {
+                                positiveField = textarea;
+                                break;
+                            }
+                        }
                     }
-                    if (extensionData && negativeField) {
-                        negativeField.value = extensionData.negative || '';
-                        negativeField.dispatchEvent(new Event('input', {bubbles: true}));
-                        negativeField.dispatchEvent(new Event('change', {bubbles: true}));
+                    
+                    if (!negativeField) {
+                        const allTextareas = document.querySelectorAll('textarea');
+                        for (let textarea of allTextareas) {
+                            const label = textarea.parentElement?.querySelector('label');
+                            if (label && label.textContent.toLowerCase().includes('negative')) {
+                                negativeField = textarea;
+                                break;
+                            }
+                        }
                     }
-                }, 100);
+                    
+                    console.log('Civitai: Found fields:', {
+                        positive: !!positiveField,
+                        negative: !!negativeField
+                    });
+                    
+                    // For now, let's just show debug info
+                    if (positiveField) {
+                        console.log('Civitai: Positive field found:', positiveField);
+                        // positiveField.value = 'TEST POSITIVE PROMPT FROM CIVITAI';
+                        // positiveField.dispatchEvent(new Event('input', {bubbles: true}));
+                    }
+                    
+                    if (negativeField) {
+                        console.log('Civitai: Negative field found:', negativeField);
+                        // negativeField.value = 'TEST NEGATIVE PROMPT FROM CIVITAI';
+                        // negativeField.dispatchEvent(new Event('input', {bubbles: true}));
+                    }
+                    
+                    if (!positiveField && !negativeField) {
+                        console.log('Civitai: No fields found. Available textareas:');
+                        document.querySelectorAll('textarea').forEach((ta, i) => {
+                            console.log(`  ${i}: ${ta.placeholder || 'no placeholder'}`);
+                        });
+                    }
+                    
+                }, 500);
                 
                 return [custom_start, custom_end, custom_negative];
             }
