@@ -666,16 +666,17 @@ class CivitaiRandomizerScript(scripts.Script):
                 print(f"[Debug] No API key provided - making unauthenticated request")
             
             # Convert filter options to API parameters
-            # NOTE: The /images endpoint doesn't respect NSFW filtering properly
-            # According to Civitai docs, nsfw=true should show NSFW content but
-            # API behavior suggests this may require different approach
+            # According to Civitai API docs, nsfw can be boolean OR enum (None, Soft, Mature, X)
+            # Let's try using enum values instead of boolean for NSFW filtering
             nsfw_param = None
             if nsfw_filter == "Exclude NSFW":
-                nsfw_param = False
+                nsfw_param = "None"  # Use enum value instead of False
+                print("[NSFW Debug] Using enum value 'None' to exclude NSFW content")
             elif nsfw_filter == "Only NSFW":
-                nsfw_param = True
-                print("[NSFW Debug] WARNING: 'Only NSFW' requested but API may not filter properly")
-                print("[NSFW Debug] The /images endpoint may not respect nsfw=true filtering")
+                nsfw_param = "X"  # Use enum value for explicit content instead of True
+                print("[NSFW Debug] Using enum value 'X' to request NSFW content")
+                print("[NSFW Debug] API docs show nsfw can be boolean OR enum (None, Soft, Mature, X)")
+            # For "Include All", leave nsfw_param as None (undefined returns all)
             
             sort_mapping = {
                 "Most Reactions": "Most Reactions",
@@ -705,8 +706,9 @@ class CivitaiRandomizerScript(scripts.Script):
                 timeout=30
             )
             
-            # Debug: Print response info
+            # Debug: Print comprehensive response info
             print(f"[Civitai API] Response status: {response.status_code}")
+            print(f"[Civitai API] Response headers: {dict(response.headers)}")
             if 'X-RateLimit-Remaining' in response.headers:
                 print(f"[Civitai API] Rate limit remaining: {response.headers['X-RateLimit-Remaining']}")
             
@@ -715,9 +717,18 @@ class CivitaiRandomizerScript(scripts.Script):
                 print(f"Response content: {response.text[:500]}")
                 return []
             
+            # Debug: Print raw response size and first part
+            response_text = response.text
+            print(f"[Civitai API] Raw response size: {len(response_text)} characters")
+            print(f"[Civitai API] Raw response preview (first 1000 chars): {response_text[:1000]}")
+            
             # Parse JSON response with error handling
             try:
                 data = response.json()
+                print(f"[Civitai API] JSON parsed successfully")
+                print(f"[Civitai API] JSON response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                if 'metadata' in data:
+                    print(f"[Civitai API] Metadata: {data['metadata']}")
             except (ValueError, requests.exceptions.JSONDecodeError) as e:
                 print(f"Failed to parse JSON response: {e}")
                 print(f"Response content: {response.text[:500]}")
@@ -733,9 +744,16 @@ class CivitaiRandomizerScript(scripts.Script):
             
             print(f"API response received - Total items: {len(items) if items else 0}")
             
-            # Debug: Show sample of first few items to check NSFW status
+            # Debug: Show comprehensive info about first few items
             if items and len(items) > 0:
-                print(f"[NSFW Debug] Sample of first 3 items NSFW status:")
+                print(f"[API Debug] Sample of first 3 items:")
+                for i, item in enumerate(items[:3]):
+                    print(f"[API Debug] === Item {i+1} Full Data ===")
+                    print(f"[API Debug] All keys: {list(item.keys()) if isinstance(item, dict) else 'Not a dict'}")
+                    print(f"[API Debug] Complete item: {item}")
+                    print(f"[API Debug] --- End Item {i+1} ---")
+                    
+                print(f"[NSFW Debug] NSFW status summary:")
                 for i, item in enumerate(items[:3]):
                     nsfw_status = item.get('nsfw', 'Unknown')
                     nsfw_level = item.get('nsfwLevel', 'Unknown')
