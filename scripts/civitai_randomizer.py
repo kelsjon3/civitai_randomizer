@@ -77,6 +77,12 @@ class CivitaiRandomizerScript(scripts.Script):
         return success
 
     def ui(self, is_img2img):
+        """Basic UI components for backward compatibility. Main interface is now in the tab."""
+        # Return empty list since all functionality is in the dedicated tab
+        return []
+
+    def original_ui_removed(self):
+        # All UI functionality moved to tab - keeping method signature for reference
         with gr.Group():
             with gr.Accordion("Civitai Randomizer", open=False):
                 gr.HTML("<h3>Civitai Prompt & LORA Randomizer</h3>")
@@ -876,9 +882,323 @@ class CivitaiRandomizerScript(scripts.Script):
             
             print(f"Applied random LORAs: {lora_text}")
 
-# Register the script
+# Global reference to the script instance for tab access
+script_instance = None
+
 def on_ui_tabs():
-    pass
+    """Create the Civitai Randomizer tab"""
+    global script_instance
+    
+    if script_instance is None:
+        script_instance = CivitaiRandomizerScript()
+    
+    with gr.Blocks() as civitai_tab:
+        gr.HTML("<h2>🎲 Civitai Prompt & LORA Randomizer</h2>")
+        gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
+        
+        # API Configuration
+        with gr.Row():
+            api_key_input = gr.Textbox(
+                label="Civitai API Key", 
+                type="password",
+                placeholder="Enter your Civitai API key (optional for public content)",
+                value=script_instance.api_key,
+                info="API key is saved automatically and persists between sessions"
+            )
+            test_api_btn = gr.Button("Test API", variant="secondary", size="sm")
+        
+        api_status = gr.HTML("")
+        
+        # Main Controls
+        with gr.Row():
+            enable_randomizer = gr.Checkbox(
+                label="Enable Civitai Randomizer",
+                value=False,
+                info="Automatically fetch new prompts for each generation"
+            )
+            bypass_prompts = gr.Checkbox(
+                label="Bypass Prompt Fetching",
+                value=False,
+                info="Use only custom prompts and LORA randomization"
+            )
+        
+        # Filtering Controls
+        with gr.Row():
+            nsfw_filter = gr.Dropdown(
+                label="NSFW Content Filter",
+                choices=["Include All", "Exclude NSFW", "Only NSFW"],
+                value="Include All",
+                info="Filter content based on NSFW classification"
+            )
+            
+        # Prompt Filtering
+        with gr.Row():
+            keyword_filter = gr.Textbox(
+                label="Keyword Filter",
+                placeholder="woman, portrait, anime, landscape",
+                info="Comma-separated keywords (OR logic): only fetch prompts containing at least one of these words"
+            )
+            sort_method = gr.Dropdown(
+                label="Sort Method",
+                choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
+                value="Most Reactions"
+            )
+        
+        # Core Action Buttons
+        with gr.Row():
+            fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg")
+            clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm")
+        
+        with gr.Row():
+            cache_status = gr.HTML("Cached prompts: 0")
+        
+        # Custom Prompt Management
+        with gr.Accordion("Custom Prompt Settings", open=False):
+            with gr.Row():
+                custom_prompt_start = gr.Textbox(
+                    label="Custom Prompt (Beginning)",
+                    placeholder="Text to add at the beginning of each prompt",
+                    lines=2
+                )
+            with gr.Row():
+                custom_prompt_end = gr.Textbox(
+                    label="Custom Prompt (End)",
+                    placeholder="Text to add at the end of each prompt",
+                    lines=2
+                )
+        
+        # LORA Management
+        with gr.Accordion("LORA Management", open=False):
+            with gr.Row():
+                enable_lora_randomizer = gr.Checkbox(
+                    label="Enable LORA Randomizer",
+                    value=False,
+                    info="Randomly select and apply LORAs"
+                )
+                refresh_loras_btn = gr.Button("Refresh LORA List", variant="secondary", size="sm")
+            
+            lora_selection = gr.CheckboxGroup(
+                label="Available LORAs",
+                choices=[],
+                value=[],
+                info="Select LORAs to include in randomization"
+            )
+            
+            with gr.Row():
+                lora_strength_min = gr.Slider(
+                    label="Min LORA Strength",
+                    minimum=0.1,
+                    maximum=2.0,
+                    value=0.5,
+                    step=0.1
+                )
+                lora_strength_max = gr.Slider(
+                    label="Max LORA Strength",
+                    minimum=0.1,
+                    maximum=2.0,
+                    value=1.0,
+                    step=0.1
+                )
+            
+            max_loras_per_gen = gr.Slider(
+                label="Max LORAs per Generation",
+                minimum=1,
+                maximum=5,
+                value=2,
+                step=1,
+                info="Maximum number of LORAs to apply randomly"
+            )
+        
+        # Main Action Buttons
+        with gr.Accordion("Prompt Population Controls", open=True):
+            with gr.Row():
+                populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
+            with gr.Row():
+                generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg")
+            
+            prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
+            
+            # Hidden textboxes to store current prompts for JavaScript access - this is the "bridge"
+            hidden_positive_prompt = gr.Textbox(
+                value="No prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
+                visible=False, 
+                elem_id="civitai_hidden_positive"
+            )
+            hidden_negative_prompt = gr.Textbox(
+                value="No negative prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
+                visible=False,
+                elem_id="civitai_hidden_negative"
+            )
+            
+            with gr.Row():
+                custom_negative_prompt = gr.Textbox(
+                    label="Custom Negative Prompt",
+                    placeholder="Text to add to negative prompts (optional)",
+                    lines=2,
+                    info="This will be combined with Civitai negative prompts"
+                )
+        
+        # Event handlers
+        def test_api_connection(api_key):
+            return script_instance.test_civitai_api(api_key)
+        
+        def refresh_lora_list():
+            loras = script_instance.get_available_loras()
+            return gr.CheckboxGroup.update(choices=loras)
+        
+        def update_api_key(api_key):
+            script_instance.api_key = api_key
+            script_instance.save_config()
+            return ""
+        
+        def clear_prompt_cache():
+            script_instance.cached_prompts = []
+            script_instance.prompt_queue = []
+            script_instance.queue_index = 0
+            return "Cached prompts: 0", "Prompt queue: 0 prompts available"
+        
+        def fetch_new_prompts(api_key, nsfw_filter, keyword_filter, sort_method):
+            script_instance.api_key = api_key
+            prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
+            
+            status_html = f"Cached prompts: {len(script_instance.cached_prompts)}"
+            queue_html = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
+            
+            # Get current prompts for hidden textboxes (the bridge)
+            current_pos = ""
+            current_neg = ""
+            if script_instance.prompt_queue:
+                first_pair = script_instance.prompt_queue[0] if len(script_instance.prompt_queue) > 0 else None
+                if first_pair:
+                    current_pos = first_pair['positive']
+                    current_neg = first_pair['negative']
+                    print(f"[Civitai Randomizer] 🔗 Updating bridge textboxes - Positive: '{current_pos[:100]}...' Negative: '{current_neg[:50]}...'")
+            
+            return status_html, queue_html, current_pos, current_neg
+        
+        def get_prompts_for_js(custom_start, custom_end, custom_negative):
+            """Generate prompts and return them for JavaScript to populate"""
+            print(f"[Civitai Randomizer] ===== JS FUNCTION CALLED =====")
+            print(f"[Civitai Randomizer] Queue length: {len(script_instance.prompt_queue)}")
+            print(f"[Civitai Randomizer] Queue index: {script_instance.queue_index}")
+            print(f"[Civitai Randomizer] Custom inputs: start='{custom_start}', end='{custom_end}', negative='{custom_negative}'")
+            
+            pair = script_instance.get_next_prompt_pair()
+            print(f"[Civitai Randomizer] Got pair: {pair is not None}")
+            
+            if pair:
+                positive, negative = script_instance.combine_prompt_pair(
+                    pair, custom_start, custom_end, custom_negative
+                )
+                print(f"[Civitai Randomizer] Generated prompts for JavaScript population:")
+                print(f"  Positive ({len(positive)} chars): {positive[:100]}...")
+                print(f"  Negative ({len(negative)} chars): {negative[:100]}...")
+                
+                remaining = len(script_instance.prompt_queue) - script_instance.queue_index
+                status_msg = f"✅ Populated main prompt fields! Queue: {remaining} remaining"
+                
+                print(f"[Civitai Randomizer] Returning: status='{status_msg}', pos_len={len(positive)}, neg_len={len(negative)}")
+                # Return status, bridge textbox values, and the actual prompts for JavaScript to use
+                return status_msg, positive, negative
+            else:
+                print(f"[Civitai Randomizer] No prompts available in queue - need to fetch prompts first!")
+                return "❌ No prompts available - fetch some prompts first!", "", ""
+        
+        # Bind events
+        test_api_btn.click(
+            test_api_connection,
+            inputs=[api_key_input],
+            outputs=[api_status]
+        )
+        
+        refresh_loras_btn.click(
+            refresh_lora_list,
+            outputs=[lora_selection]
+        )
+        
+        api_key_input.change(
+            update_api_key,
+            inputs=[api_key_input],
+            outputs=[api_status]
+        )
+        
+        clear_cache_btn.click(
+            clear_prompt_cache,
+            outputs=[cache_status, prompt_queue_status]
+        )
+        
+        fetch_prompts_btn.click(
+            fetch_new_prompts,
+            inputs=[api_key_input, nsfw_filter, keyword_filter, sort_method],
+            outputs=[cache_status, prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt]
+        )
+        
+        # Bind the populate button to update bridge textboxes and use JavaScript to populate main fields
+        populate_btn.click(
+            get_prompts_for_js,
+            inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
+            outputs=[prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt],
+            _js="""
+            function(custom_start, custom_end, custom_negative) {
+                console.log('[Civitai Randomizer] Populate button clicked with JS!');
+                console.log('[Civitai Randomizer] Custom inputs:', {custom_start, custom_end, custom_negative});
+                
+                // Give Python time to update the hidden textboxes
+                setTimeout(() => {
+                    // Read from hidden textboxes (the bridge)
+                    const hiddenPositive = document.querySelector('#civitai_hidden_positive textarea');
+                    const hiddenNegative = document.querySelector('#civitai_hidden_negative textarea');
+                    
+                    let positive_prompt = "Bridge not working!";
+                    let negative_prompt = "Bridge not working!";
+                    
+                    if (hiddenPositive) {
+                        positive_prompt = hiddenPositive.value;
+                        console.log('[Civitai Randomizer] Read from bridge - Positive:', positive_prompt.substring(0, 100) + '...');
+                    }
+                    if (hiddenNegative) {
+                        negative_prompt = hiddenNegative.value;
+                        console.log('[Civitai Randomizer] Read from bridge - Negative:', negative_prompt.substring(0, 50) + '...');
+                    }
+                    
+                    // Now populate main fields using the proven working approach
+                    let positiveField = document.querySelector('#txt2img_prompt textarea');
+                    let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
+                    
+                    if (!positiveField) {
+                        positiveField = document.querySelector('#img2img_prompt textarea');
+                    }
+                    if (!negativeField) {
+                        negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                    }
+                    
+                    if (positiveField && negativeField) {
+                        positiveField.value = positive_prompt;
+                        negativeField.value = negative_prompt;
+                        
+                        ['input', 'change'].forEach(eventType => {
+                            positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                            negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                        });
+                        
+                        console.log('[Civitai Randomizer] ✅ Main fields populated via bridge!');
+                    } else {
+                        console.log('[Civitai Randomizer] ❌ Could not find main prompt fields');
+                    }
+                }, 500);
+                
+                return [custom_start, custom_end, custom_negative];
+            }
+            """
+        )
+        
+        # Initialize LORA list on load
+        loras = script_instance.get_available_loras()
+        lora_selection.choices = loras
+        
+        print(f"[Civitai Randomizer] ✅ Tab interface created successfully")
+    
+    return [(civitai_tab, "Civitai Randomizer", "civitai_randomizer")]
 
 def on_ui_settings():
     pass
