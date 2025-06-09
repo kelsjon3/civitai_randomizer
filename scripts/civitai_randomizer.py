@@ -903,6 +903,274 @@ def on_ui_tabs():
             
             return status_msg, positive, negative, queue_info, queue_display
         
+        # Helper functions for queue display
+        def format_prompt_metadata(prompt_data):
+            """Extract and format metadata from prompt data"""
+            # Build comprehensive metadata display
+            image_info = []
+            if prompt_data.get('image_width') and prompt_data.get('image_height'):
+                image_info.append(f"{prompt_data.get('image_width', 0)} × {prompt_data.get('image_height', 0)}px")
+            if prompt_data.get('id'):
+                image_info.append(f"ID: {prompt_data.get('id')}")
+            if prompt_data.get('username'):
+                image_info.append(f"👤 {prompt_data.get('username')}")
+            if prompt_data.get('created_at'):
+                # Format date nicely
+                import datetime
+                try:
+                    dt = datetime.datetime.fromisoformat(prompt_data.get('created_at').replace('Z', '+00:00'))
+                    formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+                    image_info.append(f"📅 {formatted_date}")
+                except:
+                    image_info.append(f"📅 {prompt_data.get('created_at')}")
+            return image_info
+
+        def format_nsfw_indicators(prompt_data):
+            """Format NSFW and reaction indicators"""
+            indicators = []
+            if prompt_data.get('nsfw', False):
+                nsfw_level = prompt_data.get('nsfw_level', 'Unknown')
+                indicators.append(f"<span style='background: #ff6b6b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px;'>NSFW ({nsfw_level})</span>")
+            
+            # Reaction stats - show ALL reactions including zeros
+            all_reactions = []
+            if prompt_data.get('likes', 0) >= 0:
+                all_reactions.append(f"👍 {prompt_data.get('likes', 0)}")
+            if prompt_data.get('hearts', 0) >= 0:
+                all_reactions.append(f"❤️ {prompt_data.get('hearts', 0)}")
+            if prompt_data.get('laughs', 0) >= 0:
+                all_reactions.append(f"😂 {prompt_data.get('laughs', 0)}")
+            if prompt_data.get('cries', 0) >= 0:
+                all_reactions.append(f"😢 {prompt_data.get('cries', 0)}")
+            if prompt_data.get('dislikes', 0) >= 0:
+                all_reactions.append(f"👎 {prompt_data.get('dislikes', 0)}")
+            if prompt_data.get('comments', 0) >= 0:
+                all_reactions.append(f"💬 {prompt_data.get('comments', 0)}")
+            
+            if all_reactions:
+                indicators.append(f"<span style='color: #ffd700; font-size: 11px;'>{' '.join(all_reactions)}</span>")
+            
+            return indicators
+
+        def extract_generation_parameters(prompt_data):
+            """Extract and categorize generation parameters"""
+            # Comprehensive Image Metadata Section
+            image_metadata = []
+            if prompt_data.get('post_id'):
+                image_metadata.append(f"<strong>Post ID:</strong> {prompt_data.get('post_id')}")
+            if prompt_data.get('hash'):
+                image_metadata.append(f"<strong>Blurhash:</strong> <code style='font-size: 10px; background: #2a2a2a; padding: 1px 3px; border-radius: 2px;'>{prompt_data.get('hash')}</code>")
+            
+            # Content Rating Details  
+            content_info = []
+            content_info.append(f"<strong>NSFW:</strong> {'Yes' if prompt_data.get('nsfw', False) else 'No'}")
+            if prompt_data.get('nsfw_level'):
+                content_info.append(f"<strong>NSFW Level:</strong> {prompt_data.get('nsfw_level')}")
+            if prompt_data.get('base_model'):
+                content_info.append(f"<strong>Base Model:</strong> {prompt_data.get('base_model')}")
+            
+            # Generation parameters - split into logical groups
+            core_params = []
+            if prompt_data.get('model_name'):
+                core_params.append(f"<strong>Model:</strong> {prompt_data.get('model_name')}")
+            if prompt_data.get('steps'):
+                core_params.append(f"<strong>Steps:</strong> {prompt_data.get('steps')}")
+            if prompt_data.get('sampler'):
+                core_params.append(f"<strong>Sampler:</strong> {prompt_data.get('sampler')}")
+            if prompt_data.get('cfg_scale'):
+                core_params.append(f"<strong>CFG Scale:</strong> {prompt_data.get('cfg_scale')}")
+            if prompt_data.get('seed'):
+                core_params.append(f"<strong>Seed:</strong> {prompt_data.get('seed')}")
+            if prompt_data.get('size'):
+                core_params.append(f"<strong>Size:</strong> {prompt_data.get('size')}")
+            
+            # Advanced parameters
+            advanced_params = []
+            if prompt_data.get('clip_skip'):
+                advanced_params.append(f"<strong>CLIP Skip:</strong> {prompt_data.get('clip_skip')}")
+            if prompt_data.get('denoising_strength'):
+                advanced_params.append(f"<strong>Denoising Strength:</strong> {prompt_data.get('denoising_strength')}")
+            if prompt_data.get('vae'):
+                advanced_params.append(f"<strong>VAE:</strong> {prompt_data.get('vae')}")
+            if prompt_data.get('model_hash'):
+                # Show FULL model hash, not truncated
+                advanced_params.append(f"<strong>Model Hash:</strong> <code style='font-size: 10px; background: #2a2a2a; padding: 1px 3px; border-radius: 2px;'>{prompt_data.get('model_hash')}</code>")
+            
+            # Hires/Upscaling parameters
+            hires_params = []
+            if prompt_data.get('hires_upscaler'):
+                hires_params.append(f"<strong>Hires Upscaler:</strong> {prompt_data.get('hires_upscaler')}")
+            if prompt_data.get('hires_upscale'):
+                hires_params.append(f"<strong>Hires Scale:</strong> {prompt_data.get('hires_upscale')}")
+            if prompt_data.get('hires_steps'):
+                hires_params.append(f"<strong>Hires Steps:</strong> {prompt_data.get('hires_steps')}")
+            
+            # Try to extract any additional meta parameters that might exist
+            extra_params = []
+            meta = prompt_data.get('meta', {})
+            if isinstance(meta, dict):
+                # Look for any other interesting parameters in meta
+                interesting_keys = ['Eta', 'ENSD', 'Face restoration', 'Version', 
+                                  'ControlNet', 'Lora', 'TI', 'Hypernet', 'AddNet',
+                                  'First pass size', 'Schedule type', 'Schedule max sigma',
+                                  'Schedule min sigma', 'Schedule rho']
+                for key in interesting_keys:
+                    if key in meta and meta[key]:
+                        extra_params.append(f"<strong>{key}:</strong> {meta[key]}")
+                
+                # Also capture any other keys that might be interesting
+                skip_keys = {'prompt', 'negativePrompt', 'steps', 'sampler', 'cfgScale', 
+                           'seed', 'Model', 'clipSkip', 'Size', 'Denoising strength',
+                           'Hires upscaler', 'Hires steps', 'Hires upscale', 
+                           'Model hash', 'VAE'}
+                for key, value in meta.items():
+                    if key not in skip_keys and value and str(value).strip():
+                        extra_params.append(f"<strong>{key}:</strong> {value}")
+            
+            return image_metadata, content_info, core_params, advanced_params, hires_params, extra_params
+
+        def format_queue_item_html(i, prompt_data, current_index, image_html, basic_image_info, 
+                                  image_metadata, content_info, core_params, advanced_params, 
+                                  hires_params, extra_params, indicators, positive_preview, 
+                                  negative_preview, negative_text):
+            """Format HTML for a single queue item"""
+            status_icon = "✅" if i < current_index else "⏳"
+            status_text = "Used" if i < current_index else "Pending"
+            
+            return f"""
+            <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px; 
+                       background: {"#1e3a5f" if i >= current_index else "#2a2a2a"}; color: #fff;'>
+                <!-- Header with status and indicators -->
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;'>
+                    <strong style='color: #fff; font-size: 14px;'>#{i + 1} - {status_text}</strong>
+                    <div style='display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>
+                        <span style='font-size: 14px;'>{status_icon}</span>
+                        {' '.join(indicators)}
+                    </div>
+                </div>
+                
+                <!-- Image and comprehensive metadata side by side -->
+                <div style='display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;'>
+                    <div style='flex-shrink: 0;'>
+                        {image_html}
+                    </div>
+                    <div style='flex: 1; min-width: 300px;'>
+                        <!-- Basic Image Info -->
+                        <div style='margin-bottom: 10px; font-size: 12px; color: #bbb; line-height: 1.5;'>
+                            {' | '.join(basic_image_info) if basic_image_info else 'No basic metadata available'}
+                        </div>
+                        
+                        <!-- Image Metadata Section -->
+                        {f'''
+                        <div style='margin-bottom: 10px;'>
+                            <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🖼️ Image Metadata:</div>
+                            <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #3b82f6;'>
+                                {' • '.join(image_metadata)}
+                            </div>
+                        </div>
+                        ''' if image_metadata else ''}
+                        
+                        <!-- Content Rating Info -->
+                        {f'''
+                        <div style='margin-bottom: 10px;'>
+                            <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔞 Content Rating:</div>
+                            <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #ef4444;'>
+                                {' • '.join(content_info)}
+                            </div>
+                        </div>
+                        ''' if content_info else ''}
+                        
+                        <!-- Core Generation Parameters -->
+                        {f'''
+                        <div style='margin-bottom: 10px;'>
+                            <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>⚙️ Core Generation Settings:</div>
+                            <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #10b981;'>
+                                {' • '.join(core_params[:4])}
+                                {('<br>' + ' • '.join(core_params[4:])) if len(core_params) > 4 else ''}
+                            </div>
+                        </div>
+                        ''' if core_params else ''}
+                        
+                        <!-- Advanced Parameters -->
+                        {f'''
+                        <div style='margin-bottom: 10px;'>
+                            <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔧 Advanced Settings:</div>
+                            <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #f59e0b;'>
+                                {' • '.join(advanced_params[:3])}
+                                {('<br>' + ' • '.join(advanced_params[3:])) if len(advanced_params) > 3 else ''}
+                            </div>
+                        </div>
+                        ''' if advanced_params else ''}
+                        
+                        <!-- Hires/Upscaling Parameters -->
+                        {f'''
+                        <div style='margin-bottom: 10px;'>
+                            <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔍 Hires/Upscaling:</div>
+                            <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
+                                {' • '.join(hires_params)}
+                            </div>
+                        </div>
+                        ''' if hires_params else ''}
+                        
+                        <!-- Extra/Misc Parameters -->
+                        {f'''
+                        <div style='margin-bottom: 8px;'>
+                            <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>📎 Additional Parameters:</div>
+                            <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #6b7280;'>
+                                {' • '.join(extra_params[:4])}
+                                {('<br>' + ' • '.join(extra_params[4:8])) if len(extra_params) > 4 else ''}
+                                {('<br>' + ' • '.join(extra_params[8:])) if len(extra_params) > 8 else ''}
+                            </div>
+                        </div>
+                        ''' if extra_params else ''}
+                    </div>
+                </div>
+                
+                <!-- Prompts Section -->
+                <div style='margin-bottom: 10px;'>
+                    <strong style='color: #4ade80; font-size: 13px;'>✨ Positive Prompt:</strong><br>
+                    <span style='background: #1a3b1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #e6ffe6; border: 1px solid #2d5a2d; font-size: 12px;'>{positive_preview}</span>
+                </div>
+                
+                <div>
+                    <strong style='color: #ff6b6b; font-size: 13px;'>🚫 Negative Prompt:</strong><br>
+                    <span style='background: #3b1a1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #ffe6e6; border: 1px solid #5a2d2d; font-style: {"italic" if not negative_text else "normal"}; font-size: 12px;'>{negative_preview}</span>
+                </div>
+            </div>
+            """
+
+        def generate_image_html(prompt_data):
+            """Generate HTML for the image display"""
+            image_url = prompt_data.get('image_url', '')
+            if image_url:
+                # Calculate display size (max 300px width while preserving aspect ratio)
+                img_width = prompt_data.get('image_width', 512)
+                img_height = prompt_data.get('image_height', 512)
+                
+                display_width = min(300, img_width)
+                display_height = int((display_width / img_width) * img_height) if img_width > 0 else 300
+                
+                return f"""
+                <div style='text-align: center; margin-bottom: 10px;'>
+                    <img src='{image_url}' 
+                         style='max-width: {display_width}px; height: {display_height}px; 
+                                border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+                                cursor: pointer; transition: transform 0.2s;'
+                         onclick='window.open("{image_url}", "_blank")'
+                         onmouseover='this.style.transform="scale(1.02)"'
+                         onmouseout='this.style.transform="scale(1)"'
+                         alt='Generated Image'
+                         title='Click to view full size'>
+                </div>
+                """
+            else:
+                return """
+                <div style='text-align: center; margin-bottom: 10px; padding: 40px; 
+                           background: #2a2a2a; border-radius: 8px; color: #aaa; border: 1px solid #444;'>
+                    <strong>📷</strong><br>No image available
+                </div>
+                """
+
         def refresh_queue_display():
             """Refresh the queue display"""
             total_prompts = len(script_instance.prompt_queue)
@@ -924,11 +1192,17 @@ def on_ui_tabs():
             queue_items = []
             
             for i, prompt_data in enumerate(script_instance.prompt_queue):
-                # Determine status
-                status_icon = "✅" if i < current_index else "⏳"
-                status_text = "Used" if i < current_index else "Pending"
+                # Image display with fallback
+                image_html = generate_image_html(prompt_data)
                 
-                # Get prompts and ensure they're not empty
+                # Build comprehensive metadata display
+                basic_image_info = format_prompt_metadata(prompt_data)
+                image_metadata, content_info, core_params, advanced_params, hires_params, extra_params = extract_generation_parameters(prompt_data)
+                
+                # NSFW and ratings indicators
+                indicators = format_nsfw_indicators(prompt_data)
+                
+                # Process prompts for display
                 positive_text = prompt_data.get('positive', '')
                 negative_text = prompt_data.get('negative', '')
                 
@@ -949,254 +1223,12 @@ def on_ui_tabs():
                 else:
                     negative_preview = "<em>No negative prompt</em>"
                 
-                # Image display with fallback
-                image_url = prompt_data.get('image_url', '')
-                image_html = ""
-                if image_url:
-                    # Calculate display size (max 300px width while preserving aspect ratio)
-                    img_width = prompt_data.get('image_width', 512)
-                    img_height = prompt_data.get('image_height', 512)
-                    
-                    display_width = min(300, img_width)
-                    display_height = int((display_width / img_width) * img_height) if img_width > 0 else 300
-                    
-                    image_html = f"""
-                    <div style='text-align: center; margin-bottom: 10px;'>
-                        <img src='{image_url}' 
-                             style='max-width: {display_width}px; height: {display_height}px; 
-                                    border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
-                                    cursor: pointer; transition: transform 0.2s;'
-                             onclick='window.open("{image_url}", "_blank")'
-                             onmouseover='this.style.transform="scale(1.02)"'
-                             onmouseout='this.style.transform="scale(1)"'
-                             alt='Generated Image'
-                             title='Click to view full size'>
-                    </div>
-                    """
-                else:
-                    image_html = """
-                    <div style='text-align: center; margin-bottom: 10px; padding: 40px; 
-                               background: #2a2a2a; border-radius: 8px; color: #aaa; border: 1px solid #444;'>
-                        <strong>📷</strong><br>No image available
-                    </div>
-                    """
+                # Format HTML for a single queue item
+                queue_item = format_queue_item_html(i, prompt_data, current_index, image_html, basic_image_info, 
+                                                    image_metadata, content_info, core_params, advanced_params, 
+                                                    hires_params, extra_params, indicators, positive_preview, 
+                                                    negative_preview, negative_text)
                 
-                # Build comprehensive metadata display
-                image_info = []
-                if prompt_data.get('image_width') and prompt_data.get('image_height'):
-                    image_info.append(f"{prompt_data.get('image_width', 0)} × {prompt_data.get('image_height', 0)}px")
-                if prompt_data.get('id'):
-                    image_info.append(f"ID: {prompt_data.get('id')}")
-                if prompt_data.get('username'):
-                    image_info.append(f"👤 {prompt_data.get('username')}")
-                if prompt_data.get('created_at'):
-                    # Format date nicely
-                    import datetime
-                    try:
-                        dt = datetime.datetime.fromisoformat(prompt_data.get('created_at').replace('Z', '+00:00'))
-                        formatted_date = dt.strftime('%Y-%m-%d %H:%M')
-                        image_info.append(f"📅 {formatted_date}")
-                    except:
-                        image_info.append(f"📅 {prompt_data.get('created_at')}")
-                
-                # NSFW and ratings indicators
-                indicators = []
-                if prompt_data.get('nsfw', False):
-                    nsfw_level = prompt_data.get('nsfw_level', 'Unknown')
-                    indicators.append(f"<span style='background: #ff6b6b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px;'>NSFW ({nsfw_level})</span>")
-                
-                # Reaction stats - show ALL reactions including zeros
-                all_reactions = []
-                if prompt_data.get('likes', 0) >= 0:
-                    all_reactions.append(f"👍 {prompt_data.get('likes', 0)}")
-                if prompt_data.get('hearts', 0) >= 0:
-                    all_reactions.append(f"❤️ {prompt_data.get('hearts', 0)}")
-                if prompt_data.get('laughs', 0) >= 0:
-                    all_reactions.append(f"😂 {prompt_data.get('laughs', 0)}")
-                if prompt_data.get('cries', 0) >= 0:
-                    all_reactions.append(f"😢 {prompt_data.get('cries', 0)}")
-                if prompt_data.get('dislikes', 0) >= 0:
-                    all_reactions.append(f"👎 {prompt_data.get('dislikes', 0)}")
-                if prompt_data.get('comments', 0) >= 0:
-                    all_reactions.append(f"💬 {prompt_data.get('comments', 0)}")
-                
-                if all_reactions:
-                    indicators.append(f"<span style='color: #ffd700; font-size: 11px;'>{' '.join(all_reactions)}</span>")
-                
-                # Comprehensive Image Metadata Section
-                image_metadata = []
-                if prompt_data.get('post_id'):
-                    image_metadata.append(f"<strong>Post ID:</strong> {prompt_data.get('post_id')}")
-                if prompt_data.get('hash'):
-                    image_metadata.append(f"<strong>Blurhash:</strong> <code style='font-size: 10px; background: #2a2a2a; padding: 1px 3px; border-radius: 2px;'>{prompt_data.get('hash')}</code>")
-                
-                # Content Rating Details  
-                content_info = []
-                content_info.append(f"<strong>NSFW:</strong> {'Yes' if prompt_data.get('nsfw', False) else 'No'}")
-                if prompt_data.get('nsfw_level'):
-                    content_info.append(f"<strong>NSFW Level:</strong> {prompt_data.get('nsfw_level')}")
-                if prompt_data.get('base_model'):
-                    content_info.append(f"<strong>Base Model:</strong> {prompt_data.get('base_model')}")
-                
-                # Generation parameters - split into logical groups
-                core_params = []
-                if prompt_data.get('model_name'):
-                    core_params.append(f"<strong>Model:</strong> {prompt_data.get('model_name')}")
-                if prompt_data.get('steps'):
-                    core_params.append(f"<strong>Steps:</strong> {prompt_data.get('steps')}")
-                if prompt_data.get('sampler'):
-                    core_params.append(f"<strong>Sampler:</strong> {prompt_data.get('sampler')}")
-                if prompt_data.get('cfg_scale'):
-                    core_params.append(f"<strong>CFG Scale:</strong> {prompt_data.get('cfg_scale')}")
-                if prompt_data.get('seed'):
-                    core_params.append(f"<strong>Seed:</strong> {prompt_data.get('seed')}")
-                if prompt_data.get('size'):
-                    core_params.append(f"<strong>Size:</strong> {prompt_data.get('size')}")
-                
-                # Advanced parameters
-                advanced_params = []
-                if prompt_data.get('clip_skip'):
-                    advanced_params.append(f"<strong>CLIP Skip:</strong> {prompt_data.get('clip_skip')}")
-                if prompt_data.get('denoising_strength'):
-                    advanced_params.append(f"<strong>Denoising Strength:</strong> {prompt_data.get('denoising_strength')}")
-                if prompt_data.get('vae'):
-                    advanced_params.append(f"<strong>VAE:</strong> {prompt_data.get('vae')}")
-                if prompt_data.get('model_hash'):
-                    # Show FULL model hash, not truncated
-                    advanced_params.append(f"<strong>Model Hash:</strong> <code style='font-size: 10px; background: #2a2a2a; padding: 1px 3px; border-radius: 2px;'>{prompt_data.get('model_hash')}</code>")
-                
-                # Hires/Upscaling parameters
-                hires_params = []
-                if prompt_data.get('hires_upscaler'):
-                    hires_params.append(f"<strong>Hires Upscaler:</strong> {prompt_data.get('hires_upscaler')}")
-                if prompt_data.get('hires_upscale'):
-                    hires_params.append(f"<strong>Hires Scale:</strong> {prompt_data.get('hires_upscale')}")
-                if prompt_data.get('hires_steps'):
-                    hires_params.append(f"<strong>Hires Steps:</strong> {prompt_data.get('hires_steps')}")
-                
-                # Try to extract any additional meta parameters that might exist
-                extra_params = []
-                meta = prompt_data.get('meta', {})
-                if isinstance(meta, dict):
-                    # Look for any other interesting parameters in meta
-                    interesting_keys = ['Eta', 'ENSD', 'Face restoration', 'Version', 
-                                      'ControlNet', 'Lora', 'TI', 'Hypernet', 'AddNet',
-                                      'First pass size', 'Schedule type', 'Schedule max sigma',
-                                      'Schedule min sigma', 'Schedule rho']
-                    for key in interesting_keys:
-                        if key in meta and meta[key]:
-                            extra_params.append(f"<strong>{key}:</strong> {meta[key]}")
-                    
-                    # Also capture any other keys that might be interesting
-                    skip_keys = {'prompt', 'negativePrompt', 'steps', 'sampler', 'cfgScale', 
-                               'seed', 'Model', 'clipSkip', 'Size', 'Denoising strength',
-                               'Hires upscaler', 'Hires steps', 'Hires upscale', 
-                               'Model hash', 'VAE'}
-                    for key, value in meta.items():
-                        if key not in skip_keys and value and str(value).strip():
-                            extra_params.append(f"<strong>{key}:</strong> {value}")
-                
-                queue_item = f"""
-                <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px; 
-                           background: {"#1e3a5f" if i >= current_index else "#2a2a2a"}; color: #fff;'>
-                    <!-- Header with status and indicators -->
-                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;'>
-                        <strong style='color: #fff; font-size: 14px;'>#{i + 1} - {status_text}</strong>
-                        <div style='display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>
-                            <span style='font-size: 14px;'>{status_icon}</span>
-                            {' '.join(indicators)}
-                        </div>
-                    </div>
-                    
-                    <!-- Image and comprehensive metadata side by side -->
-                    <div style='display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;'>
-                        <div style='flex-shrink: 0;'>
-                            {image_html}
-                        </div>
-                        <div style='flex: 1; min-width: 300px;'>
-                            <!-- Basic Image Info -->
-                            <div style='margin-bottom: 10px; font-size: 12px; color: #bbb; line-height: 1.5;'>
-                                {' | '.join(image_info) if image_info else 'No basic metadata available'}
-                            </div>
-                            
-                            <!-- Image Metadata Section -->
-                            {f'''
-                            <div style='margin-bottom: 10px;'>
-                                <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🖼️ Image Metadata:</div>
-                                <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #3b82f6;'>
-                                    {' • '.join(image_metadata)}
-                                </div>
-                            </div>
-                            ''' if image_metadata else ''}
-                            
-                            <!-- Content Rating Info -->
-                            {f'''
-                            <div style='margin-bottom: 10px;'>
-                                <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔞 Content Rating:</div>
-                                <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #ef4444;'>
-                                    {' • '.join(content_info)}
-                                </div>
-                            </div>
-                            ''' if content_info else ''}
-                            
-                            <!-- Core Generation Parameters -->
-                            {f'''
-                            <div style='margin-bottom: 10px;'>
-                                <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>⚙️ Core Generation Settings:</div>
-                                <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #10b981;'>
-                                    {' • '.join(core_params[:4])}
-                                    {('<br>' + ' • '.join(core_params[4:])) if len(core_params) > 4 else ''}
-                                </div>
-                            </div>
-                            ''' if core_params else ''}
-                            
-                            <!-- Advanced Parameters -->
-                            {f'''
-                            <div style='margin-bottom: 10px;'>
-                                <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔧 Advanced Settings:</div>
-                                <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #f59e0b;'>
-                                    {' • '.join(advanced_params[:3])}
-                                    {('<br>' + ' • '.join(advanced_params[3:])) if len(advanced_params) > 3 else ''}
-                                </div>
-                            </div>
-                            ''' if advanced_params else ''}
-                            
-                            <!-- Hires/Upscaling Parameters -->
-                            {f'''
-                            <div style='margin-bottom: 10px;'>
-                                <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔍 Hires/Upscaling:</div>
-                                <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
-                                    {' • '.join(hires_params)}
-                                </div>
-                            </div>
-                            ''' if hires_params else ''}
-                            
-                            <!-- Extra/Misc Parameters -->
-                            {f'''
-                            <div style='margin-bottom: 8px;'>
-                                <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>📎 Additional Parameters:</div>
-                                <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #6b7280;'>
-                                    {' • '.join(extra_params[:4])}
-                                    {('<br>' + ' • '.join(extra_params[4:8])) if len(extra_params) > 4 else ''}
-                                    {('<br>' + ' • '.join(extra_params[8:])) if len(extra_params) > 8 else ''}
-                                </div>
-                            </div>
-                            ''' if extra_params else ''}
-                        </div>
-                    </div>
-                    
-                    <!-- Prompts Section -->
-                    <div style='margin-bottom: 10px;'>
-                        <strong style='color: #4ade80; font-size: 13px;'>✨ Positive Prompt:</strong><br>
-                        <span style='background: #1a3b1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #e6ffe6; border: 1px solid #2d5a2d; font-size: 12px;'>{positive_preview}</span>
-                    </div>
-                    
-                    <div>
-                        <strong style='color: #ff6b6b; font-size: 13px;'>🚫 Negative Prompt:</strong><br>
-                        <span style='background: #3b1a1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #ffe6e6; border: 1px solid #5a2d2d; font-style: {"italic" if not negative_text else "normal"}; font-size: 12px;'>{negative_preview}</span>
-                    </div>
-                </div>
-                """
                 queue_items.append(queue_item)
             
             queue_display_content = f"""
