@@ -1189,7 +1189,7 @@ def on_ui_tabs():
             
             if not script_instance.prompt_queue:
                 queue_display_content = """
-                <div style='padding: 30px; text-align: center; color: #666; background: #f9f9f9; border-radius: 8px; border: 1px solid #ddd;'>
+                <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px; border: 1px solid #444;'>
                     <h3>📋 No prompts in queue</h3>
                     <p>Click "Fetch New Prompts" to load prompts from Civitai</p>
                 </div>
@@ -1204,12 +1204,25 @@ def on_ui_tabs():
                 status_icon = "✅" if i < current_index else "⏳"
                 status_text = "Used" if i < current_index else "Pending"
                 
-                # Truncate prompts for display
-                positive_preview = prompt_data['positive'][:200] + "..." if len(prompt_data['positive']) > 200 else prompt_data['positive']
-                negative_preview = prompt_data['negative'][:150] + "..." if len(prompt_data['negative']) > 150 else prompt_data['negative']
+                # Get prompts and ensure they're not empty
+                positive_text = prompt_data.get('positive', '')
+                negative_text = prompt_data.get('negative', '')
                 
-                # Handle missing negative prompt
-                if not negative_preview:
+                # Debug: Print actual values
+                print(f"[Queue Display] Prompt #{i+1}: positive='{positive_text[:50]}...', negative='{negative_text[:30]}...'")
+                
+                # Truncate prompts for display and escape HTML
+                import html
+                if positive_text:
+                    positive_truncated = positive_text[:200] + "..." if len(positive_text) > 200 else positive_text
+                    positive_preview = html.escape(positive_truncated)
+                else:
+                    positive_preview = "<em>No positive prompt found</em>"
+                    
+                if negative_text:
+                    negative_truncated = negative_text[:150] + "..." if len(negative_text) > 150 else negative_text
+                    negative_preview = html.escape(negative_truncated)
+                else:
                     negative_preview = "<em>No negative prompt</em>"
                 
                 # Image display with fallback
@@ -1239,7 +1252,7 @@ def on_ui_tabs():
                 else:
                     image_html = """
                     <div style='text-align: center; margin-bottom: 10px; padding: 40px; 
-                               background: #f0f0f0; border-radius: 8px; color: #666;'>
+                               background: #2a2a2a; border-radius: 8px; color: #aaa; border: 1px solid #444;'>
                         <strong>📷</strong><br>No image available
                     </div>
                     """
@@ -1250,26 +1263,26 @@ def on_ui_tabs():
                     nsfw_indicator = "<span style='background: #ff6b6b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px;'>NSFW</span>"
                 
                 queue_item = f"""
-                <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; 
-                           background: {"#f0f8ff" if i >= current_index else "#f8f8f8"};'>
+                <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px; 
+                           background: {"#1e3a5f" if i >= current_index else "#2a2a2a"}; color: #fff;'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
-                        <strong>#{i + 1} - {status_text}</strong>
+                        <strong style='color: #fff;'>#{i + 1} - {status_text}</strong>
                         <span>{status_icon}{nsfw_indicator}</span>
                     </div>
                     
                     {image_html}
                     
                     <div style='margin-bottom: 10px;'>
-                        <strong style='color: #2c5530;'>Positive Prompt:</strong><br>
-                        <span style='background: #e8f5e8; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4;'>{positive_preview}</span>
+                        <strong style='color: #4ade80;'>Positive Prompt:</strong><br>
+                        <span style='background: #1a3b1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #e6ffe6; border: 1px solid #2d5a2d;'>{positive_preview}</span>
                     </div>
                     
                     <div>
-                        <strong style='color: #7d2c2c;'>Negative Prompt:</strong><br>
-                        <span style='background: #ffeaea; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; font-style: {"italic" if not prompt_data["negative"] else "normal"};'>{negative_preview}</span>
+                        <strong style='color: #ff6b6b;'>Negative Prompt:</strong><br>
+                        <span style='background: #3b1a1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #ffe6e6; border: 1px solid #5a2d2d; font-style: {"italic" if not negative_text else "normal"};'>{negative_preview}</span>
                     </div>
                     
-                    <div style='margin-top: 8px; font-size: 12px; color: #666;'>
+                    <div style='margin-top: 8px; font-size: 12px; color: #aaa;'>
                         Image: {prompt_data.get('image_width', 0)} × {prompt_data.get('image_height', 0)}px
                     </div>
                 </div>
@@ -1277,10 +1290,10 @@ def on_ui_tabs():
                 queue_items.append(queue_item)
             
             queue_display_content = f"""
-            <div style='max-height: 800px; overflow-y: auto; padding: 10px;'>
-                <div style='margin-bottom: 15px; padding: 10px; background: #e3f2fd; border-radius: 6px; text-align: center;'>
+            <div style='max-height: 800px; overflow-y: auto; padding: 10px; background: #0d1117; border-radius: 8px;'>
+                <div style='margin-bottom: 15px; padding: 10px; background: #1c2938; border-radius: 6px; text-align: center; color: #fff; border: 1px solid #444;'>
                     <strong>Queue Status:</strong> {remaining} remaining out of {total_prompts} total prompts
-                    <br><small>Click on any image to view full size</small>
+                    <br><small style='color: #ccc;'>Click on any image to view full size</small>
                 </div>
                 {''.join(queue_items)}
             </div>
