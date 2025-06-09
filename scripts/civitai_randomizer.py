@@ -40,6 +40,11 @@ class CivitaiRandomizerScript(scripts.Script):
         self.last_sort_method = "Most Reactions"
         self.last_next_page_url = None  # Store next page URL from API response
         
+        # Lora availability checking
+        self.local_loras_cache = {}  # Cache of local Loras: {filename: {sha256, metadata}}
+        self.lora_cache_timestamp = 0  # When the cache was last updated
+        self.lora_cache_ttl = 300  # Cache TTL in seconds (5 minutes)
+        
         # Remove problematic on_after_component calls for now
         # We'll try a different approach
         
@@ -583,6 +588,340 @@ class CivitaiRandomizerScript(scripts.Script):
         
         return sorted(loras) if loras else ["No LORA files found"]
 
+    def get_lora_directory_path(self) -> str:
+        """Get the configured Lora directory path"""
+        # First check if user has configured a custom path
+        custom_path = getattr(shared.opts, 'civitai_lora_path', '')
+        if custom_path and custom_path.strip() and os.path.exists(custom_path.strip()):
+            return custom_path.strip()
+        
+        # Fallback to existing logic
+        lora_path = shared.cmd_opts.lora_dir
+        if not lora_path:
+            # Use default paths - check both models/Lora and extensions
+            possible_paths = [
+                os.path.join(shared.models_path, "Lora"),
+                os.path.join(shared.models_path, "lora"),
+                "models/Lora",
+                "extensions"
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    lora_path = path
+                    break
+        
+        return lora_path if lora_path and os.path.exists(lora_path) else None
+
+    def calculate_file_sha256(self, file_path: str) -> Optional[str]:
+        """Calculate SHA256 hash of a file"""
+        try:
+            import hashlib
+            sha256_hash = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                # Read file in chunks to handle large files
+                for chunk in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(chunk)
+            return sha256_hash.hexdigest().upper()  # Use uppercase for consistency
+        except Exception as e:
+            print(f"[Lora Hash] Error calculating SHA256 for {file_path}: {e}")
+            return None
+
+    def load_lora_metadata(self, lora_file_path: str) -> Dict[str, Any]:
+        """Load metadata from .json file associated with a Lora file"""
+        base_path = os.path.splitext(lora_file_path)[0]
+        json_path = base_path + ".json"
+        
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+                    print(f"[Lora Metadata] Loaded metadata for {os.path.basename(lora_file_path)}")
+                    return metadata
+            except Exception as e:
+                print(f"[Lora Metadata] Error reading {json_path}: {e}")
+        
+        return {}
+
+    def scan_local_loras(self, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+        """Scan local Loras and cache their metadata with SHA256 hashes"""
+        current_time = time.time()
+        
+        # Check if cache is still valid
+        if not force_refresh and self.local_loras_cache and (current_time - self.lora_cache_timestamp) < self.lora_cache_ttl:
+            print(f"[Lora Scanner] Using cached Lora data ({len(self.local_loras_cache)} items)")
+            return self.local_loras_cache
+        
+        print(f"[Lora Scanner] Scanning local Loras...")
+        lora_path = self.get_lora_directory_path()
+        
+        if not lora_path:
+            print(f"[Lora Scanner] No valid Lora directory found")
+            return {}
+        
+        print(f"[Lora Scanner] Scanning directory: {lora_path}")
+        lora_cache = {}
+        scanned_count = 0
+        metadata_count = 0
+        hash_count = 0
+        
+        for root, dirs, files in os.walk(lora_path):
+            for file in files:
+                if file.endswith(('.safetensors', '.pt', '.ckpt')):
+                    file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, lora_path)
+                    scanned_count += 1
+                    
+                    # Load metadata
+                    metadata = self.load_lora_metadata(file_path)
+                    if metadata:
+                        metadata_count += 1
+                    
+                    # Calculate hash (this might take time for large files)
+                    file_hash = self.calculate_file_sha256(file_path)
+                    if file_hash:
+                        hash_count += 1
+                    
+                    # Store in cache
+                    lora_cache[relative_path] = {
+                        'file_path': file_path,
+                        'sha256': file_hash,
+                        'metadata': metadata,
+                        'file_size': os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+                        'modified_time': os.path.getmtime(file_path) if os.path.exists(file_path) else 0
+                    }
+        
+        # Update cache
+        self.local_loras_cache = lora_cache
+        self.lora_cache_timestamp = current_time
+        
+        print(f"[Lora Scanner] Scan complete:")
+        print(f"  Files scanned: {scanned_count}")
+        print(f"  With metadata: {metadata_count}")
+        print(f"  With hashes: {hash_count}")
+        print(f"  Cache updated with {len(lora_cache)} Loras")
+        
+        return lora_cache
+
+    def parse_loras_from_civitai_prompt(self, prompt_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Parse Lora information from Civitai prompt metadata"""
+        loras_found = []
+        
+        # Get the meta information
+        meta = prompt_data.get('meta', {})
+        if not isinstance(meta, dict):
+            return loras_found
+        
+        # Look for Lora information in various possible keys
+        lora_keys = ['Lora', 'LoRA', 'lora', 'AddNet', 'TI']  # Common keys where Lora info might be stored
+        
+        for key in lora_keys:
+            if key in meta and meta[key]:
+                lora_value = meta[key]
+                if isinstance(lora_value, str):
+                    # Parse Lora string format
+                    # Common formats: "loraname:strength", "loraname:strength:hash", etc.
+                    loras_found.extend(self._parse_lora_string(lora_value))
+                elif isinstance(lora_value, dict):
+                    # Direct Lora object
+                    loras_found.append(lora_value)
+                elif isinstance(lora_value, list):
+                    # List of Loras
+                    for lora_item in lora_value:
+                        if isinstance(lora_item, dict):
+                            loras_found.append(lora_item)
+                        elif isinstance(lora_item, str):
+                            loras_found.extend(self._parse_lora_string(lora_item))
+        
+        # Also look for Lora tags in the positive prompt text
+        positive_prompt = prompt_data.get('positive', '')
+        if positive_prompt:
+            loras_found.extend(self._extract_loras_from_prompt_text(positive_prompt))
+        
+        print(f"[Lora Parser] Found {len(loras_found)} Loras in prompt ID {prompt_data.get('id', 'unknown')}")
+        return loras_found
+
+    def _parse_lora_string(self, lora_string: str) -> List[Dict[str, Any]]:
+        """Parse Lora information from string format"""
+        loras = []
+        
+        # Handle comma-separated Loras
+        if ',' in lora_string:
+            parts = [part.strip() for part in lora_string.split(',') if part.strip()]
+        else:
+            parts = [lora_string.strip()] if lora_string.strip() else []
+        
+        for part in parts:
+            # Parse individual Lora entries
+            # Format examples: "loraname:0.8", "loraname:0.8:hash123", etc.
+            if ':' in part:
+                components = part.split(':')
+                lora_info = {
+                    'name': components[0].strip(),
+                    'strength': float(components[1]) if len(components) > 1 and components[1].replace('.', '').isdigit() else 1.0,
+                    'hash': components[2].strip() if len(components) > 2 else None,
+                    'source': 'metadata_string'
+                }
+                loras.append(lora_info)
+            else:
+                # Just a name
+                loras.append({
+                    'name': part.strip(),
+                    'strength': 1.0,
+                    'hash': None,
+                    'source': 'metadata_string'
+                })
+        
+        return loras
+
+    def _extract_loras_from_prompt_text(self, prompt_text: str) -> List[Dict[str, Any]]:
+        """Extract Lora tags from prompt text using regex"""
+        loras = []
+        
+        # Pattern to match <lora:name:strength> format
+        import re
+        lora_pattern = r'<lora:([^:>]+):?([0-9]*\.?[0-9]*)>'
+        
+        matches = re.findall(lora_pattern, prompt_text, re.IGNORECASE)
+        
+        for match in matches:
+            name = match[0].strip()
+            strength = float(match[1]) if match[1] else 1.0
+            
+            loras.append({
+                'name': name,
+                'strength': strength,
+                'hash': None,
+                'source': 'prompt_text'
+            })
+        
+        return loras
+
+    def check_lora_availability(self, civitai_loras: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Check which Civitai Loras are available locally"""
+        # Ensure local cache is up to date
+        self.scan_local_loras()
+        
+        availability_results = []
+        
+        for civitai_lora in civitai_loras:
+            result = {
+                'civitai_lora': civitai_lora,
+                'available': False,
+                'local_matches': [],
+                'match_method': None
+            }
+            
+            # Try different matching methods
+            
+            # Method 1: Exact hash match (most reliable)
+            civitai_hash = civitai_lora.get('hash')
+            if civitai_hash:
+                hash_matches = self._find_loras_by_hash(civitai_hash)
+                if hash_matches:
+                    result['available'] = True
+                    result['local_matches'] = hash_matches
+                    result['match_method'] = 'hash'
+                    availability_results.append(result)
+                    continue
+            
+            # Method 2: Name matching (less reliable but still useful)
+            civitai_name = civitai_lora.get('name', '').lower()
+            if civitai_name:
+                name_matches = self._find_loras_by_name(civitai_name)
+                if name_matches:
+                    result['available'] = True
+                    result['local_matches'] = name_matches
+                    result['match_method'] = 'name'
+            
+            availability_results.append(result)
+        
+        return availability_results
+
+    def _find_loras_by_hash(self, target_hash: str) -> List[Dict[str, Any]]:
+        """Find local Loras that match the given hash"""
+        matches = []
+        target_hash_upper = target_hash.upper() if target_hash else None
+        
+        if not target_hash_upper:
+            return matches
+        
+        for filename, lora_data in self.local_loras_cache.items():
+            # Check direct hash match
+            if lora_data.get('sha256') == target_hash_upper:
+                matches.append({
+                    'filename': filename,
+                    'file_path': lora_data.get('file_path'),
+                    'match_type': 'sha256_direct'
+                })
+            
+            # Check hash from metadata
+            metadata = lora_data.get('metadata', {})
+            if isinstance(metadata, dict):
+                metadata_hash = metadata.get('sha256', '').upper()
+                if metadata_hash == target_hash_upper:
+                    matches.append({
+                        'filename': filename,
+                        'file_path': lora_data.get('file_path'),
+                        'match_type': 'sha256_metadata'
+                    })
+        
+        return matches
+
+    def _find_loras_by_name(self, target_name: str) -> List[Dict[str, Any]]:
+        """Find local Loras that match the given name (fuzzy matching)"""
+        matches = []
+        target_name_lower = target_name.lower() if target_name else ""
+        
+        if not target_name_lower:
+            return matches
+        
+        for filename, lora_data in self.local_loras_cache.items():
+            # Remove file extension for comparison
+            base_filename = os.path.splitext(filename)[0].lower()
+            
+            # Exact filename match
+            if base_filename == target_name_lower:
+                matches.append({
+                    'filename': filename,
+                    'file_path': lora_data.get('file_path'),
+                    'match_type': 'filename_exact'
+                })
+                continue
+            
+            # Partial filename match
+            if target_name_lower in base_filename or base_filename in target_name_lower:
+                matches.append({
+                    'filename': filename,
+                    'file_path': lora_data.get('file_path'),
+                    'match_type': 'filename_partial'
+                })
+                continue
+            
+            # Check metadata for name matches
+            metadata = lora_data.get('metadata', {})
+            if isinstance(metadata, dict):
+                # Check various name fields in metadata
+                name_fields = ['name', 'modelName', 'title']
+                for field in name_fields:
+                    if field in metadata:
+                        meta_name = str(metadata[field]).lower()
+                        if target_name_lower == meta_name:
+                            matches.append({
+                                'filename': filename,
+                                'file_path': lora_data.get('file_path'),
+                                'match_type': f'metadata_{field}_exact'
+                            })
+                            break
+                        elif target_name_lower in meta_name or meta_name in target_name_lower:
+                            matches.append({
+                                'filename': filename,
+                                'file_path': lora_data.get('file_path'),
+                                'match_type': f'metadata_{field}_partial'
+                            })
+                            break
+        
+        return matches
+
     def refresh_lora_list_on_load(self, lora_component):
         """Refresh LORA list when component loads"""
         def update_loras():
@@ -754,27 +1093,102 @@ class CivitaiRandomizerScript(scripts.Script):
         if isinstance(meta, dict):
             # Look for any other interesting parameters in meta
             interesting_keys = ['Eta', 'ENSD', 'Face restoration', 'Version', 
-                              'ControlNet', 'Lora', 'TI', 'Hypernet', 'AddNet',
+                              'ControlNet', 'TI', 'Hypernet', 'AddNet',
                               'First pass size', 'Schedule type', 'Schedule max sigma',
                               'Schedule min sigma', 'Schedule rho']
             for key in interesting_keys:
-                if key in meta and meta[key]:
+                if key in meta and meta[key] and key != 'Lora':  # Skip Lora as it's handled separately
                     extra_params.append(f"<strong>{key}:</strong> {meta[key]}")
             
             # Also capture any other keys that might be interesting
             skip_keys = {'prompt', 'negativePrompt', 'steps', 'sampler', 'cfgScale', 
                        'seed', 'Model', 'clipSkip', 'Size', 'Denoising strength',
                        'Hires upscaler', 'Hires steps', 'Hires upscale', 
-                       'Model hash', 'VAE'}
+                       'Model hash', 'VAE', 'Lora'}  # Skip Lora as it's handled separately
             for key, value in meta.items():
                 if key not in skip_keys and value and str(value).strip():
                     extra_params.append(f"<strong>{key}:</strong> {value}")
         
-        return image_metadata, content_info, core_params, advanced_params, hires_params, extra_params
+        # Check Lora availability
+        lora_info = self.format_lora_availability_info(prompt_data)
+        
+        return image_metadata, content_info, core_params, advanced_params, hires_params, extra_params, lora_info
+
+    def format_lora_availability_info(self, prompt_data: Dict[str, Any]) -> List[str]:
+        """Format Lora availability information for display"""
+        try:
+            # Parse Loras from the prompt
+            civitai_loras = self.parse_loras_from_civitai_prompt(prompt_data)
+            
+            if not civitai_loras:
+                return []
+            
+            # Check availability
+            availability_results = self.check_lora_availability(civitai_loras)
+            
+            lora_info = []
+            
+            for result in availability_results:
+                civitai_lora = result['civitai_lora']
+                lora_name = civitai_lora.get('name', 'Unknown')
+                lora_strength = civitai_lora.get('strength', 1.0)
+                lora_hash = civitai_lora.get('hash', 'No hash')
+                lora_source = civitai_lora.get('source', 'unknown')
+                
+                # Determine status icon and color
+                if result['available']:
+                    if result['match_method'] == 'hash':
+                        status_icon = "✅"
+                        status_color = "#10b981"  # Green
+                        status_text = "Available (Hash Match)"
+                    else:
+                        status_icon = "⚠️"
+                        status_color = "#f59e0b"  # Orange
+                        status_text = "Available (Name Match)"
+                else:
+                    status_icon = "❌"
+                    status_color = "#ef4444"  # Red
+                    status_text = "Not Found"
+                
+                # Build match details
+                match_details = []
+                if result['local_matches']:
+                    for match in result['local_matches'][:2]:  # Show max 2 matches to save space
+                        match_filename = match.get('filename', 'Unknown file')
+                        match_type = match.get('match_type', 'unknown')
+                        match_details.append(f"{match_filename} ({match_type})")
+                    
+                    if len(result['local_matches']) > 2:
+                        match_details.append(f"... and {len(result['local_matches']) - 2} more")
+                
+                # Create formatted info string
+                lora_detail = f"""
+                <div style='margin: 4px 0; padding: 6px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid {status_color};'>
+                    <div style='display: flex; align-items: center; gap: 6px; margin-bottom: 2px;'>
+                        <span style='font-size: 12px;'>{status_icon}</span>
+                        <strong style='color: {status_color}; font-size: 11px;'>{lora_name}</strong>
+                        <span style='color: #888; font-size: 10px;'>({lora_strength})</span>
+                    </div>
+                    <div style='font-size: 10px; color: #bbb; line-height: 1.3;'>
+                        Status: {status_text}<br>
+                        Hash: <code style='background: #2a2a2a; padding: 1px 2px; border-radius: 2px;'>{lora_hash[:16]}{'...' if len(str(lora_hash)) > 16 else ''}</code><br>
+                        Source: {lora_source}
+                        {f'<br>Matches: {", ".join(match_details)}' if match_details else ''}
+                    </div>
+                </div>
+                """
+                
+                lora_info.append(lora_detail.strip())
+            
+            return lora_info
+            
+        except Exception as e:
+            print(f"[Lora Availability] Error formatting Lora info: {e}")
+            return [f"<div style='color: #ef4444; font-size: 11px;'>Error checking Lora availability: {str(e)}</div>"]
 
     def format_queue_item_html(self, i, prompt_data, current_index, image_html, basic_image_info,
                               image_metadata, content_info, core_params, advanced_params, 
-                              hires_params, extra_params, indicators, positive_preview, 
+                              hires_params, extra_params, lora_info, indicators, positive_preview, 
                               negative_preview, negative_text):
         """Format HTML for a single queue item"""
         status_icon = "✅" if i < current_index else "⏳"
@@ -822,6 +1236,16 @@ class CivitaiRandomizerScript(scripts.Script):
                         </div>
                     </div>
                     ''' if content_info else ''}
+                    
+                    <!-- Lora Availability Section -->
+                    {f'''
+                    <div style='margin-bottom: 10px;'>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🎯 Lora Availability:</div>
+                        <div style='background: #111827; padding: 4px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
+                            {''.join(lora_info)}
+                        </div>
+                    </div>
+                    ''' if lora_info else ''}
                     
                     <!-- Core Generation Parameters -->
                     {f'''
@@ -1063,6 +1487,30 @@ def _create_main_controls_tab():
                 info="Maximum number of LORAs to apply randomly"
             )
         
+        # Lora Availability Checking
+        with gr.Accordion("Lora Availability Checker", open=False):
+            gr.HTML("<p><strong>Check which Loras from Civitai prompts are available locally</strong></p>")
+            gr.HTML("<p><small>Configure your Lora directory path in <strong>Settings → Civitai Randomizer</strong></small></p>")
+            
+            with gr.Row():
+                scan_loras_btn = gr.Button("🔍 Scan Local Loras", variant="primary", size="sm")
+                lora_scan_status = gr.HTML("Lora cache: Not scanned yet")
+            
+            with gr.Row():
+                force_rescan_btn = gr.Button("🔄 Force Rescan", variant="secondary", size="sm")
+                clear_lora_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm")
+            
+            lora_scan_info = gr.HTML("""
+            <div style='background: #1a1a1a; padding: 10px; border-radius: 4px; margin-top: 10px; font-size: 12px; color: #ccc;'>
+                <strong>How it works:</strong><br>
+                • Scans your local Lora directory for .safetensors, .pt, and .ckpt files<br>
+                • Calculates SHA256 hashes for exact matching with Civitai Loras<br>
+                • Reads .json metadata files (compatible with sd-civitai-browser-plus)<br>
+                • Shows availability status in the Prompt Queue<br>
+                • Cache expires after 5 minutes to detect new files
+            </div>
+            """)
+        
         # Main Action Buttons
         with gr.Accordion("Prompt Population Controls", open=True):
             with gr.Row():
@@ -1111,6 +1559,10 @@ def _create_main_controls_tab():
         'lora_strength_min': lora_strength_min,
         'lora_strength_max': lora_strength_max,
         'max_loras_per_gen': max_loras_per_gen,
+        'scan_loras_btn': scan_loras_btn,
+        'lora_scan_status': lora_scan_status,
+        'force_rescan_btn': force_rescan_btn,
+        'clear_lora_cache_btn': clear_lora_cache_btn,
         'fetch_prompts_btn': fetch_prompts_btn,
         'populate_btn': populate_btn,
         'generate_forever_btn': generate_forever_btn,
@@ -1167,6 +1619,30 @@ def _create_event_handlers():
     def refresh_lora_list():
         loras = script_instance.get_available_loras()
         return gr.CheckboxGroup.update(choices=loras)
+    
+    def scan_local_loras():
+        """Scan local Loras and return status"""
+        try:
+            lora_cache = script_instance.scan_local_loras(force_refresh=False)
+            status_msg = f"Lora cache: {len(lora_cache)} files scanned"
+            return status_msg
+        except Exception as e:
+            return f"Lora cache: Error - {str(e)}"
+    
+    def force_rescan_loras():
+        """Force rescan of local Loras"""
+        try:
+            lora_cache = script_instance.scan_local_loras(force_refresh=True)
+            status_msg = f"Lora cache: {len(lora_cache)} files rescanned (forced)"
+            return status_msg
+        except Exception as e:
+            return f"Lora cache: Error - {str(e)}"
+    
+    def clear_lora_cache():
+        """Clear the Lora cache"""
+        script_instance.local_loras_cache = {}
+        script_instance.lora_cache_timestamp = 0
+        return "Lora cache: Cleared"
     
     def clear_prompt_cache():
         script_instance.cached_prompts = []
@@ -1337,7 +1813,7 @@ def _create_event_handlers():
             # Use class methods for processing
             image_html = script_instance.generate_image_html(prompt_data)
             basic_image_info = script_instance.format_prompt_metadata(prompt_data)
-            image_metadata, content_info, core_params, advanced_params, hires_params, extra_params = script_instance.extract_generation_parameters(prompt_data)
+            image_metadata, content_info, core_params, advanced_params, hires_params, extra_params, lora_info = script_instance.extract_generation_parameters(prompt_data)
             indicators = script_instance.format_nsfw_indicators(prompt_data)
             
             # Process prompts for display
@@ -1364,7 +1840,7 @@ def _create_event_handlers():
             # Format HTML for a single queue item using class method
             queue_item = script_instance.format_queue_item_html(i, prompt_data, current_index, image_html, basic_image_info, 
                                                                image_metadata, content_info, core_params, advanced_params, 
-                                                               hires_params, extra_params, indicators, positive_preview, 
+                                                               hires_params, extra_params, lora_info, indicators, positive_preview, 
                                                                negative_preview, negative_text)
             
             queue_items.append(queue_item)
@@ -1385,6 +1861,9 @@ def _create_event_handlers():
     return {
         'test_api_connection': test_api_connection,
         'refresh_lora_list': refresh_lora_list,
+        'scan_local_loras': scan_local_loras,
+        'force_rescan_loras': force_rescan_loras,
+        'clear_lora_cache': clear_lora_cache,
         'clear_prompt_cache': clear_prompt_cache,
         'clear_and_update_queue': clear_and_update_queue,
         'reset_queue_index': reset_queue_index,
@@ -1425,6 +1904,22 @@ def on_ui_tabs():
         main_controls_tab['refresh_loras_btn'].click(
             event_handlers['refresh_lora_list'],
             outputs=[main_controls_tab['lora_selection']]
+        )
+        
+        # Lora availability event handlers
+        main_controls_tab['scan_loras_btn'].click(
+            event_handlers['scan_local_loras'],
+            outputs=[main_controls_tab['lora_scan_status']]
+        )
+        
+        main_controls_tab['force_rescan_btn'].click(
+            event_handlers['force_rescan_loras'],
+            outputs=[main_controls_tab['lora_scan_status']]
+        )
+        
+        main_controls_tab['clear_lora_cache_btn'].click(
+            event_handlers['clear_lora_cache'],
+            outputs=[main_controls_tab['lora_scan_status']]
         )
         
         main_controls_tab['clear_cache_btn'].click(
@@ -1540,6 +2035,17 @@ def on_ui_settings():
             "Civitai API Key (optional for public content)",
             gr.Textbox,
             {"type": "password", "placeholder": "Enter your Civitai API key"},
+            section=section
+        )
+    )
+    
+    shared.opts.add_option(
+        "civitai_lora_path",
+        shared.OptionInfo(
+            "",
+            "Local Lora Directory Path (leave empty for auto-detection)",
+            gr.Textbox,
+            {"placeholder": "/path/to/your/lora/folder"},
             section=section
         )
     )
