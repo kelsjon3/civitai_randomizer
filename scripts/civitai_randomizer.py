@@ -596,33 +596,59 @@ class CivitaiRandomizerScript(scripts.Script):
             return "❌ No prompts available - fetch some prompts first!", "", ""
 
     def test_civitai_api(self, api_key: str) -> str:
-        """Test connection to Civitai API"""
+        """Test connection to Civitai API with proper authentication validation"""
         try:
-            headers = {}
-            if api_key:
-                headers['Authorization'] = f'Bearer {api_key}'
+            if not api_key or not api_key.strip():
+                return "<span style='color: red;'>✗ No API key provided</span>"
             
+            headers = {'Authorization': f'Bearer {api_key.strip()}'}
+            
+            # Test 1: Use the /api/v1/me endpoint which requires authentication
+            print(f"[API Test] Testing API key authentication...")
             response = requests.get(
-                'https://civitai.com/api/v1/images',
+                'https://civitai.com/api/v1/me',
                 headers=headers,
-                params={'limit': 1},
                 timeout=10
             )
             
+            print(f"[API Test] /me endpoint response: {response.status_code}")
+            
             if response.status_code == 200:
                 try:
-                    data = response.json()
-                    if data and 'items' in data:
-                        return "<span style='color: green;'>✓ API connection successful</span>"
-                    else:
-                        return f"<span style='color: orange;'>⚠ API connected but unexpected response format</span>"
+                    user_data = response.json()
+                    username = user_data.get('username', 'Unknown')
+                    return f"<span style='color: green;'>✓ API key valid - Authenticated as: {username}</span>"
                 except:
-                    return f"<span style='color: orange;'>⚠ API connected but invalid JSON response</span>"
+                    return f"<span style='color: orange;'>⚠ API key valid but unexpected user data format</span>"
+            elif response.status_code == 401:
+                return f"<span style='color: red;'>✗ Invalid API key - Authentication failed</span>"
+            elif response.status_code == 403:
+                return f"<span style='color: red;'>✗ API key forbidden - Check permissions</span>"
             else:
-                return f"<span style='color: red;'>✗ API error: {response.status_code} - {response.text[:100]}</span>"
+                # If /me endpoint fails, fall back to testing with the models endpoint with favorites
+                print(f"[API Test] /me failed with {response.status_code}, trying authenticated models endpoint...")
+                response = requests.get(
+                    'https://civitai.com/api/v1/models',
+                    headers=headers,
+                    params={'limit': 1, 'favorites': 'true'},  # favorites requires auth
+                    timeout=10
+                )
                 
+                print(f"[API Test] /models with favorites response: {response.status_code}")
+                
+                if response.status_code == 200:
+                    return f"<span style='color: green;'>✓ API key appears valid (authenticated request successful)</span>"
+                elif response.status_code == 401:
+                    return f"<span style='color: red;'>✗ Invalid API key - Authentication failed</span>"
+                else:
+                    return f"<span style='color: orange;'>⚠ API key might be valid but service issues (HTTP {response.status_code})</span>"
+                
+        except requests.exceptions.Timeout:
+            return f"<span style='color: red;'>✗ Connection timeout - Check your internet connection</span>"
+        except requests.exceptions.ConnectionError:
+            return f"<span style='color: red;'>✗ Connection error - Cannot reach Civitai servers</span>"
         except Exception as e:
-            return f"<span style='color: red;'>✗ Connection error: {str(e)}</span>"
+            return f"<span style='color: red;'>✗ Unexpected error: {str(e)}</span>"
 
     def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100) -> List[str]:
         """Fetch prompts from Civitai API"""
