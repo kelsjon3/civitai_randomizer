@@ -613,6 +613,30 @@ class CivitaiRandomizerScript(scripts.Script):
         
         return lora_path if lora_path and os.path.exists(lora_path) else None
 
+    def get_checkpoint_directory_path(self) -> str:
+        """Get the configured Checkpoint directory path"""
+        # First check if user has configured a custom path
+        custom_path = getattr(shared.opts, 'civitai_checkpoint_path', '')
+        if custom_path and custom_path.strip() and os.path.exists(custom_path.strip()):
+            return custom_path.strip()
+        
+        # Fallback to existing logic for checkpoints
+        checkpoint_path = getattr(shared.cmd_opts, 'ckpt_dir', None)
+        if not checkpoint_path:
+            # Use default paths - check both models/Stable-diffusion and extensions
+            possible_paths = [
+                os.path.join(shared.models_path, "Stable-diffusion"),
+                os.path.join(shared.models_path, "stable-diffusion"),
+                "models/Stable-diffusion",
+                "models/stable-diffusion"
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    checkpoint_path = path
+                    break
+        
+        return checkpoint_path if checkpoint_path and os.path.exists(checkpoint_path) else None
+
     def init_database(self):
         """Initialize the SQLite database for Lora storage"""
         try:
@@ -649,18 +673,49 @@ class CivitaiRandomizerScript(scripts.Script):
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_filename ON loras(filename)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_modified_time ON loras(modified_time)')
                 
+                # Create checkpoints table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS checkpoints (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        filename TEXT NOT NULL UNIQUE,
+                        file_path TEXT NOT NULL,
+                        relative_path TEXT NOT NULL,
+                        sha256 TEXT,
+                        file_size INTEGER,
+                        modified_time REAL,
+                        scan_time REAL,
+                        metadata_json TEXT,
+                        model_id TEXT,
+                        model_version_id TEXT,
+                        name TEXT,
+                        description TEXT,
+                        sd_version TEXT,
+                        base_model TEXT,
+                        created_at REAL DEFAULT (datetime('now')),
+                        updated_at REAL DEFAULT (datetime('now'))
+                    )
+                ''')
+                
+                # Create indexes for checkpoints
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_sha256 ON checkpoints(sha256)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_name ON checkpoints(name)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_filename ON checkpoints(filename)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_modified_time ON checkpoints(modified_time)')
+                
                 # Create scan_stats table for tracking scan progress
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS scan_stats (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         scan_date REAL,
                         lora_directory TEXT,
+                        checkpoint_directory TEXT,
                         total_files INTEGER,
                         processed_files INTEGER,
                         files_with_metadata INTEGER,
                         files_with_hashes INTEGER,
                         scan_duration REAL,
-                        scan_type TEXT
+                        scan_type TEXT,
+                        content_type TEXT
                     )
                 ''')
                 
@@ -963,6 +1018,416 @@ class CivitaiRandomizerScript(scripts.Script):
         
         return legacy_cache
 
+    def get_checkpoint_count(self) -> int:
+        """Get total number of Checkpoints in database"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT COUNT(*) FROM checkpoints')
+                return cursor.fetchone()[0]
+        except Exception as e:
+            print(f"[Checkpoint DB] Error getting Checkpoint count: {e}")
+            return 0
+
+    def scan_local_checkpoints(self, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+        """Scan local Checkpoints and store in SQLite database with incremental updates"""
+        start_time = time.time()
+        
+        print(f"[Checkpoint DB] Starting Checkpoint scan (force_refresh={force_refresh})...")
+        checkpoint_path = self.get_checkpoint_directory_path()
+        
+        if not checkpoint_path:
+            print(f"[Checkpoint DB] No valid Checkpoint directory found")
+            return {}
+        
+        print(f"[Checkpoint DB] Scanning directory: {checkpoint_path}")
+        
+        # Get existing Checkpoints from database
+        existing_checkpoints = {}
+        if not force_refresh:
+            try:
+                with self.get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('SELECT * FROM checkpoints')
+                    for row in cursor.fetchall():
+                        existing_checkpoints[row['relative_path']] = dict(row)
+                print(f"[Checkpoint DB] Found {len(existing_checkpoints)} existing Checkpoints in database")
+            except Exception as e:
+                print(f"[Checkpoint DB] Error loading existing Checkpoints: {e}")
+        
+        # Scan filesystem
+        discovered_files = {}
+        for root, dirs, files in os.walk(checkpoint_path):
+            for file in files:
+                if file.endswith(('.safetensors', '.pt', '.ckpt')):
+                    file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, checkpoint_path)
+                    
+                    try:
+                        file_stat = os.stat(file_path)
+                        discovered_files[relative_path] = {
+                            'file_path': file_path,
+                            'file_size': file_stat.st_size,
+                            'modified_time': file_stat.st_mtime
+                        }
+                    except Exception as e:
+                        print(f"[Checkpoint DB] Error reading file stats for {file_path}: {e}")
+        
+        print(f"[Checkpoint DB] Discovered {len(discovered_files)} Checkpoint files on disk")
+        
+        # Determine what needs to be processed
+        files_to_process = []
+        files_to_remove = []
+        
+        if force_refresh:
+            # Process all discovered files
+            files_to_process = list(discovered_files.keys())
+        else:
+            # Only process new or modified files
+            for relative_path, file_info in discovered_files.items():
+                existing = existing_checkpoints.get(relative_path)
+                if not existing or existing['modified_time'] != file_info['modified_time']:
+                    files_to_process.append(relative_path)
+            
+            # Find files that no longer exist
+            for relative_path in existing_checkpoints:
+                if relative_path not in discovered_files:
+                    files_to_remove.append(relative_path)
+        
+        print(f"[Checkpoint DB] Processing {len(files_to_process)} files, removing {len(files_to_remove)} orphaned entries")
+        
+        # Remove orphaned entries
+        if files_to_remove:
+            try:
+                with self.get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    for relative_path in files_to_remove:
+                        cursor.execute('DELETE FROM checkpoints WHERE relative_path = ?', (relative_path,))
+                    conn.commit()
+                    print(f"[Checkpoint DB] Removed {len(files_to_remove)} orphaned entries")
+            except Exception as e:
+                print(f"[Checkpoint DB] Error removing orphaned entries: {e}")
+        
+        # Process files
+        processed_count = 0
+        metadata_count = 0
+        hash_count = 0
+        
+        for relative_path in files_to_process:
+            file_info = discovered_files[relative_path]
+            file_path = file_info['file_path']
+            
+            try:
+                # Load metadata (checkpoints use the same .json format as loras)
+                metadata = self.load_lora_metadata(file_path)  # Reuse the same method
+                metadata_json = json.dumps(metadata) if metadata else None
+                if metadata:
+                    metadata_count += 1
+                
+                # Calculate hash
+                file_hash = self.calculate_file_sha256(file_path)
+                if file_hash:
+                    hash_count += 1
+                
+                # Extract metadata fields
+                model_id = metadata.get('modelId', '') if metadata else ''
+                model_version_id = metadata.get('modelVersionId', '') if metadata else ''
+                name = metadata.get('name', '') if metadata else ''
+                description = metadata.get('description', '') if metadata else ''
+                sd_version = metadata.get('sd version', '') if metadata else ''
+                base_model = metadata.get('baseModel', '') if metadata else ''
+                
+                # Insert or update in database
+                with self.get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO checkpoints (
+                            filename, file_path, relative_path, sha256, file_size, modified_time,
+                            scan_time, metadata_json, model_id, model_version_id, name, description,
+                            sd_version, base_model, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ''', (
+                        os.path.basename(file_path), file_path, relative_path, file_hash,
+                        file_info['file_size'], file_info['modified_time'], time.time(),
+                        metadata_json, model_id, model_version_id, name, description,
+                        sd_version, base_model
+                    ))
+                    conn.commit()
+                
+                processed_count += 1
+                
+                # Progress logging
+                if processed_count % 5 == 0:  # More frequent progress for potentially fewer files
+                    print(f"[Checkpoint DB] Processed {processed_count}/{len(files_to_process)} files...")
+                
+            except Exception as e:
+                print(f"[Checkpoint DB] Error processing {file_path}: {e}")
+        
+        # Record scan statistics
+        scan_duration = time.time() - start_time
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO scan_stats (
+                        scan_date, checkpoint_directory, total_files, processed_files,
+                        files_with_metadata, files_with_hashes, scan_duration, scan_type, content_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    time.time(), checkpoint_path, len(discovered_files), processed_count,
+                    metadata_count, hash_count, scan_duration,
+                    'full' if force_refresh else 'incremental', 'checkpoints'
+                ))
+                conn.commit()
+        except Exception as e:
+            print(f"[Checkpoint DB] Error recording scan stats: {e}")
+        
+        print(f"[Checkpoint DB] Scan complete:")
+        print(f"  Total files discovered: {len(discovered_files)}")
+        print(f"  Files processed: {processed_count}")
+        print(f"  With metadata: {metadata_count}")
+        print(f"  With hashes: {hash_count}")
+        print(f"  Scan duration: {scan_duration:.2f} seconds")
+        
+        # Return database stats in legacy format for compatibility
+        return self._get_legacy_checkpoint_cache_format()
+
+    def _get_legacy_checkpoint_cache_format(self) -> Dict[str, Dict[str, Any]]:
+        """Convert checkpoint database entries to legacy cache format for compatibility"""
+        legacy_cache = {}
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM checkpoints')
+                for row in cursor.fetchall():
+                    row_dict = dict(row)
+                    metadata = json.loads(row_dict['metadata_json']) if row_dict['metadata_json'] else {}
+                    
+                    legacy_cache[row_dict['relative_path']] = {
+                        'file_path': row_dict['file_path'],
+                        'sha256': row_dict['sha256'],
+                        'metadata': metadata,
+                        'file_size': row_dict['file_size'],
+                        'modified_time': row_dict['modified_time']
+                    }
+        except Exception as e:
+            print(f"[Checkpoint DB] Error converting to legacy format: {e}")
+        
+        return legacy_cache
+
+    def search_checkpoints_db(self, name_query: str = "", hash_query: str = "", 
+                             folder_query: str = "", has_metadata: bool = False, 
+                             has_hash: bool = False, selected_folders: List[str] = None, 
+                             limit: int = 100) -> List[Dict[str, Any]]:
+        """Search Checkpoints in database with various filters"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Build query dynamically based on filters
+                where_conditions = []
+                params = []
+                
+                if name_query:
+                    where_conditions.append(
+                        '(LOWER(name) LIKE ? OR LOWER(filename) LIKE ? OR LOWER(description) LIKE ?)'
+                    )
+                    search_term = f'%{name_query.lower()}%'
+                    params.extend([search_term, search_term, search_term])
+                
+                if hash_query:
+                    where_conditions.append('UPPER(sha256) LIKE ?')
+                    params.append(f'%{hash_query.upper()}%')
+                
+                if folder_query:
+                    where_conditions.append('LOWER(relative_path) LIKE ?')
+                    params.append(f'%{folder_query.lower()}%')
+                
+                # Filter by selected folders (from dropdown)
+                if selected_folders:
+                    # Create folder filter conditions
+                    folder_conditions = []
+                    for folder in selected_folders:
+                        if folder == "(root)":
+                            # For root folder, look for files with no path separator
+                            folder_conditions.append("relative_path NOT LIKE '%/%'")
+                        else:
+                            # For named folders, look for files that start with folder name
+                            folder_conditions.append("LOWER(relative_path) LIKE ?")
+                            params.append(f'{folder.lower()}/%')
+                    
+                    if folder_conditions:
+                        where_conditions.append(f"({' OR '.join(folder_conditions)})")
+                
+                if has_metadata:
+                    where_conditions.append('metadata_json IS NOT NULL AND metadata_json != ""')
+                
+                if has_hash:
+                    where_conditions.append('sha256 IS NOT NULL AND sha256 != ""')
+                
+                # Construct final query
+                base_query = 'SELECT * FROM checkpoints'
+                if where_conditions:
+                    base_query += ' WHERE ' + ' AND '.join(where_conditions)
+                base_query += ' ORDER BY relative_path, filename LIMIT ?'
+                params.append(limit)
+                
+                cursor.execute(base_query, params)
+                results = []
+                for row in cursor.fetchall():
+                    row_dict = dict(row)
+                    # Parse metadata JSON
+                    if row_dict['metadata_json']:
+                        try:
+                            row_dict['metadata'] = json.loads(row_dict['metadata_json'])
+                        except:
+                            row_dict['metadata'] = {}
+                    else:
+                        row_dict['metadata'] = {}
+                    results.append(row_dict)
+                
+                return results
+                
+        except Exception as e:
+            print(f"[Checkpoint DB] Error searching database: {e}")
+            return []
+
+    def get_checkpoint_folder_choices(self) -> List[str]:
+        """Get all unique folder paths for the checkpoint filter dropdown"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT DISTINCT
+                        CASE 
+                            WHEN instr(relative_path, '/') > 0 
+                            THEN substr(relative_path, 1, instr(relative_path, '/') - 1)
+                            ELSE '(root)'
+                        END as folder_path
+                    FROM checkpoints 
+                    ORDER BY 
+                        CASE WHEN folder_path = '(root)' THEN 0 ELSE 1 END,
+                        folder_path
+                ''')
+                
+                folders = [row[0] for row in cursor.fetchall()]
+                return folders
+                
+        except Exception as e:
+            print(f"[Checkpoint DB] Error getting folder choices: {e}")
+            return []
+
+    def format_checkpoint_database_display(self, checkpoints: List[Dict[str, Any]], query_info: str = "") -> str:
+        """Format Checkpoint database results for HTML display"""
+        if not checkpoints:
+            return """
+            <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
+                <h3>📭 No Checkpoints Found</h3>
+                <p>No Checkpoints match your search criteria. Try adjusting your filters or scan your Checkpoint directory.</p>
+            </div>
+            """
+        
+        # Generate HTML for each Checkpoint
+        checkpoint_items = []
+        
+        for checkpoint in checkpoints:
+            # Format file size
+            file_size = checkpoint.get('file_size', 0)
+            if file_size > 1024 * 1024 * 1024:
+                size_str = f"{file_size / (1024**3):.1f} GB"
+            elif file_size > 1024 * 1024:
+                size_str = f"{file_size / (1024**2):.1f} MB"
+            elif file_size > 1024:
+                size_str = f"{file_size / 1024:.1f} KB"
+            else:
+                size_str = f"{file_size} bytes"
+            
+            # Format dates
+            import datetime
+            try:
+                if checkpoint.get('modified_time'):
+                    mod_date = datetime.datetime.fromtimestamp(checkpoint['modified_time']).strftime('%Y-%m-%d %H:%M')
+                else:
+                    mod_date = "Unknown"
+            except:
+                mod_date = "Unknown"
+            
+            # Status indicators
+            has_hash = bool(checkpoint.get('sha256'))
+            has_metadata = bool(checkpoint.get('metadata_json'))
+            
+            hash_indicator = "✅" if has_hash else "❌"
+            metadata_indicator = "✅" if has_metadata else "❌"
+            
+            # Metadata info
+            metadata = checkpoint.get('metadata', {})
+            model_id = metadata.get('modelId', '')
+            description = metadata.get('description', '')
+            
+            # Create Checkpoint item HTML
+            checkpoint_item = f"""
+            <div style='margin-bottom: 15px; padding: 12px; border: 1px solid #444; border-radius: 8px; 
+                       background: #2a2a2a; color: #fff;'>
+                
+                <!-- Header with filename and status -->
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
+                    <strong style='color: #60a5fa; font-size: 14px;'>{checkpoint.get('filename', 'Unknown')}</strong>
+                    <div style='display: flex; gap: 8px; align-items: center;'>
+                        <span style='font-size: 12px;'>{hash_indicator} Hash</span>
+                        <span style='font-size: 12px;'>{metadata_indicator} Metadata</span>
+                    </div>
+                </div>
+                
+                <!-- File info -->
+                <div style='font-size: 11px; color: #bbb; margin-bottom: 8px;'>
+                    <strong>Folder:</strong> <span style='color: #60a5fa; font-family: monospace;'>{os.path.dirname(checkpoint.get('relative_path', '')) or '(root)'}</span><br>
+                    <strong>File:</strong> {os.path.basename(checkpoint.get('relative_path', 'Unknown'))}<br>
+                    <strong>Size:</strong> {size_str} | <strong>Modified:</strong> {mod_date}
+                </div>
+                
+                <!-- Hash info -->
+                {f'''
+                <div style='margin-bottom: 8px;'>
+                    <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>SHA256 Hash:</strong></div>
+                    <code style='background: #1a1a1a; padding: 4px 6px; border-radius: 4px; font-size: 10px; 
+                                color: #10b981; border: 1px solid #374151; word-break: break-all;'>{checkpoint.get('sha256')}</code>
+                </div>
+                ''' if has_hash else ''}
+                
+                <!-- Metadata info -->
+                {f'''
+                <div style='margin-bottom: 8px;'>
+                    <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>Metadata:</strong></div>
+                    <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; 
+                               border: 1px solid #374151; line-height: 1.4;'>
+                        {f"<strong>Model ID:</strong> {model_id}<br>" if model_id else ""}
+                        {f"<strong>Name:</strong> {metadata.get('name', '')}<br>" if metadata.get('name') else ""}
+                        {f"<strong>Description:</strong> {description}<br>" if description else ""}
+                        {f"<strong>Base Model:</strong> {metadata.get('baseModel', '')}<br>" if metadata.get('baseModel') else ""}
+                        {f"<strong>SD Version:</strong> {metadata.get('sd version', '')}" if metadata.get('sd version') else ""}
+                    </div>
+                </div>
+                ''' if has_metadata and metadata else ''}
+                
+            </div>
+            """
+            
+            checkpoint_items.append(checkpoint_item)
+        
+        # Combine all items
+        results_html = f"""
+        <div style='max-height: 800px; overflow-y: auto; padding: 10px; background: #0d1117; border-radius: 8px;'>
+            <div style='margin-bottom: 15px; padding: 10px; background: #1c2938; border-radius: 6px; 
+                       text-align: center; color: #fff; border: 1px solid #444;'>
+                <strong>Database Results:</strong> {len(checkpoints)} Checkpoints found
+                {f"<br><small style='color: #ccc;'>{query_info}</small>" if query_info else ""}
+            </div>
+            {''.join(checkpoint_items)}
+        </div>
+        """
+        
+        return results_html
+
     def parse_loras_from_civitai_prompt(self, prompt_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Parse Lora information from Civitai prompt metadata"""
         loras_found = []
@@ -1205,7 +1670,8 @@ class CivitaiRandomizerScript(scripts.Script):
 
     def search_loras_db(self, name_query: str = "", hash_query: str = "", 
                        folder_query: str = "", has_metadata: bool = False, 
-                       has_hash: bool = False, limit: int = 100) -> List[Dict[str, Any]]:
+                       has_hash: bool = False, selected_folders: List[str] = None, 
+                       limit: int = 100) -> List[Dict[str, Any]]:
         """Search Loras in database with various filters"""
         try:
             with self.get_db_connection() as conn:
@@ -1229,6 +1695,22 @@ class CivitaiRandomizerScript(scripts.Script):
                 if folder_query:
                     where_conditions.append('LOWER(relative_path) LIKE ?')
                     params.append(f'%{folder_query.lower()}%')
+                
+                # Filter by selected folders (from dropdown)
+                if selected_folders:
+                    # Create folder filter conditions
+                    folder_conditions = []
+                    for folder in selected_folders:
+                        if folder == "(root)":
+                            # For root folder, look for files with no path separator
+                            folder_conditions.append("relative_path NOT LIKE '%/%'")
+                        else:
+                            # For named folders, look for files that start with folder name
+                            folder_conditions.append("LOWER(relative_path) LIKE ?")
+                            params.append(f'{folder.lower()}/%')
+                    
+                    if folder_conditions:
+                        where_conditions.append(f"({' OR '.join(folder_conditions)})")
                 
                 if has_metadata:
                     where_conditions.append('metadata_json IS NOT NULL AND metadata_json != ""')
@@ -1261,6 +1743,31 @@ class CivitaiRandomizerScript(scripts.Script):
                 
         except Exception as e:
             print(f"[Lora DB] Error searching database: {e}")
+            return []
+
+    def get_folder_choices(self) -> List[str]:
+        """Get all unique folder paths for the filter dropdown"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT DISTINCT
+                        CASE 
+                            WHEN instr(relative_path, '/') > 0 
+                            THEN substr(relative_path, 1, instr(relative_path, '/') - 1)
+                            ELSE '(root)'
+                        END as folder_path
+                    FROM loras 
+                    ORDER BY 
+                        CASE WHEN folder_path = '(root)' THEN 0 ELSE 1 END,
+                        folder_path
+                ''')
+                
+                folders = [row[0] for row in cursor.fetchall()]
+                return folders
+                
+        except Exception as e:
+            print(f"[Lora DB] Error getting folder choices: {e}")
             return []
 
     def format_lora_database_display(self, loras: List[Dict[str, Any]], query_info: str = "") -> str:
@@ -1989,6 +2496,70 @@ def _create_queue_tab():
         'queue_display': queue_display
     }
 
+def _create_checkpoint_management_tab():
+    """Create the Checkpoint management tab UI components"""
+    with gr.TabItem("Checkpoint Database"):
+        gr.HTML("<h3>🎯 Local Checkpoint Database Management</h3>")
+        gr.HTML("<p>Manage and browse your local Checkpoint collection with persistent SQLite storage.</p>")
+        
+        # Database status and controls
+        with gr.Row():
+            checkpoint_db_stats = gr.HTML("Database: Not loaded")
+            checkpoint_refresh_stats_btn = gr.Button("🔄 Refresh Stats", variant="secondary", size="sm")
+        
+        with gr.Row():
+            checkpoint_scan_db_btn = gr.Button("🔍 Scan Checkpoints", variant="primary")
+            checkpoint_force_scan_btn = gr.Button("🔄 Force Rescan", variant="secondary")
+            checkpoint_clear_db_btn = gr.Button("🗑️ Clear Database", variant="stop")
+            checkpoint_vacuum_db_btn = gr.Button("⚡ Optimize DB", variant="secondary")
+        
+        # Search and filter controls
+        gr.HTML("<h4>🔎 Search & Filter</h4>")
+        with gr.Row():
+            checkpoint_search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
+            checkpoint_search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
+            checkpoint_search_folder = gr.Textbox(placeholder="Search by folder path...", label="Folder Filter", scale=2)
+            checkpoint_search_btn = gr.Button("🔍 Search", variant="primary", scale=1)
+        
+        with gr.Row():
+            checkpoint_filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
+            checkpoint_filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
+            checkpoint_show_all_btn = gr.Button("📋 Show All", variant="secondary")
+            checkpoint_refresh_folders_btn = gr.Button("🔄 Refresh Folders", variant="secondary")
+        
+        # Folder filter dropdown (Excel-style)
+        checkpoint_folder_filter = gr.CheckboxGroup(
+            choices=[],
+            value=[],
+            label="📁 Filter by Folders (uncheck to hide)",
+            elem_id="checkpoint_folder_filter",
+            interactive=True
+        )
+        
+        # Results display
+        checkpoint_results_info = gr.HTML("Results: No search performed")
+        checkpoint_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #888;'>No results to display</div>")
+    
+    return {
+        'checkpoint_db_stats': checkpoint_db_stats,
+        'checkpoint_refresh_stats_btn': checkpoint_refresh_stats_btn,
+        'checkpoint_scan_db_btn': checkpoint_scan_db_btn,
+        'checkpoint_force_scan_btn': checkpoint_force_scan_btn,
+        'checkpoint_clear_db_btn': checkpoint_clear_db_btn,
+        'checkpoint_vacuum_db_btn': checkpoint_vacuum_db_btn,
+        'checkpoint_search_name': checkpoint_search_name,
+        'checkpoint_search_hash': checkpoint_search_hash,
+        'checkpoint_search_folder': checkpoint_search_folder,
+        'checkpoint_search_btn': checkpoint_search_btn,
+        'checkpoint_filter_has_metadata': checkpoint_filter_has_metadata,
+        'checkpoint_filter_has_hash': checkpoint_filter_has_hash,
+        'checkpoint_show_all_btn': checkpoint_show_all_btn,
+        'checkpoint_refresh_folders_btn': checkpoint_refresh_folders_btn,
+        'checkpoint_folder_filter': checkpoint_folder_filter,
+        'checkpoint_results_info': checkpoint_results_info,
+        'checkpoint_display': checkpoint_display
+    }
+
 def _create_lora_management_tab():
     """Create the Lora management tab UI components"""
     with gr.TabItem("Lora Database"):
@@ -2018,7 +2589,16 @@ def _create_lora_management_tab():
             filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
             filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
             show_all_btn = gr.Button("📋 Show All", variant="secondary")
-            show_folders_btn = gr.Button("📁 Show Folders", variant="secondary")
+            refresh_folders_btn = gr.Button("🔄 Refresh Folders", variant="secondary")
+        
+        # Folder filter dropdown (Excel-style)
+        folder_filter = gr.CheckboxGroup(
+            choices=[],
+            value=[],
+            label="📁 Filter by Folders (uncheck to hide)",
+            elem_id="lora_folder_filter",
+            interactive=True
+        )
         
         # Results display
         results_info = gr.HTML("Results: No search performed")
@@ -2038,7 +2618,8 @@ def _create_lora_management_tab():
         'filter_has_metadata': filter_has_metadata,
         'filter_has_hash': filter_has_hash,
         'show_all_btn': show_all_btn,
-        'show_folders_btn': show_folders_btn,
+        'refresh_folders_btn': refresh_folders_btn,
+        'folder_filter': folder_filter,
         'results_info': results_info,
         'lora_display': lora_display
     }
@@ -2066,6 +2647,22 @@ def _create_event_handlers():
         except Exception as e:
             return f"Lora database: Error - {str(e)}"
     
+    def scan_and_refresh_folders():
+        """Scan local Loras and refresh folder choices"""
+        try:
+            script_instance.scan_local_loras(force_refresh=False)
+            count = script_instance.get_lora_count()
+            status_msg = f"Lora database: {count} files scanned"
+            
+            # Get updated folder choices
+            folders = script_instance.get_folder_choices()
+            folder_update = gr.CheckboxGroup.update(choices=folders, value=folders)
+            
+            return status_msg, folder_update
+        except Exception as e:
+            error_msg = f"Lora database: Error - {str(e)}"
+            return error_msg, gr.CheckboxGroup.update(choices=[], value=[])
+    
     def force_rescan_loras():
         """Force rescan of local Loras"""
         try:
@@ -2075,6 +2672,22 @@ def _create_event_handlers():
             return status_msg
         except Exception as e:
             return f"Lora database: Error - {str(e)}"
+    
+    def force_rescan_and_refresh_folders():
+        """Force rescan of local Loras and refresh folder choices"""
+        try:
+            script_instance.scan_local_loras(force_refresh=True)
+            count = script_instance.get_lora_count()
+            status_msg = f"Lora database: {count} files rescanned (forced)"
+            
+            # Get updated folder choices
+            folders = script_instance.get_folder_choices()
+            folder_update = gr.CheckboxGroup.update(choices=folders, value=folders)
+            
+            return status_msg, folder_update
+        except Exception as e:
+            error_msg = f"Lora database: Error - {str(e)}"
+            return error_msg, gr.CheckboxGroup.update(choices=[], value=[])
     
     def clear_lora_cache():
         """Clear the Lora database"""
@@ -2153,7 +2766,7 @@ def _create_event_handlers():
         except Exception as e:
             return f"<div style='color: #ff6b6b;'>Search error: {str(e)}</div>"
     
-    def search_loras_with_filters(name_query, hash_query, folder_query, has_metadata, has_hash):
+    def search_loras_with_filters(name_query, hash_query, folder_query, has_metadata, has_hash, selected_folders):
         """Search Loras in database with all filters"""
         try:
             # Perform search with all filters
@@ -2163,6 +2776,7 @@ def _create_event_handlers():
                 folder_query=folder_query or "",
                 has_metadata=has_metadata,
                 has_hash=has_hash,
+                selected_folders=selected_folders if selected_folders else None,
                 limit=200
             )
             
@@ -2174,6 +2788,11 @@ def _create_event_handlers():
                 query_parts.append(f"hash contains '{hash_query}'")
             if folder_query:
                 query_parts.append(f"folder contains '{folder_query}'")
+            if selected_folders:
+                if len(selected_folders) == 1:
+                    query_parts.append(f"folder: {selected_folders[0]}")
+                else:
+                    query_parts.append(f"folders: {', '.join(selected_folders[:3])}{'...' if len(selected_folders) > 3 else ''}")
             if has_metadata:
                 query_parts.append("has metadata")
             if has_hash:
@@ -2204,6 +2823,16 @@ def _create_event_handlers():
             return results_html
         except Exception as e:
             return f"<div style='color: #ff6b6b;'>Error loading Loras: {str(e)}</div>"
+    
+    def refresh_folder_choices():
+        """Refresh the folder filter choices and select all by default"""
+        try:
+            folders = script_instance.get_folder_choices()
+            # Return both choices and values (all selected by default)
+            return gr.CheckboxGroup.update(choices=folders, value=folders)
+        except Exception as e:
+            print(f"Error refreshing folder choices: {e}")
+            return gr.CheckboxGroup.update(choices=[], value=[])
     
     def show_folders():
         """Show all unique folders in the database"""
@@ -2278,6 +2907,200 @@ def _create_event_handlers():
             </div>
             """
     
+    # Checkpoint Event Handlers
+    def scan_local_checkpoints():
+        """Scan local Checkpoints and return status"""
+        try:
+            script_instance.scan_local_checkpoints(force_refresh=False)
+            count = script_instance.get_checkpoint_count()
+            status_msg = f"Checkpoint database: {count} files scanned"
+            return status_msg
+        except Exception as e:
+            return f"Checkpoint database: Error - {str(e)}"
+    
+    def scan_checkpoints_and_refresh_folders():
+        """Scan local Checkpoints and refresh folder choices"""
+        try:
+            script_instance.scan_local_checkpoints(force_refresh=False)
+            count = script_instance.get_checkpoint_count()
+            status_msg = f"Checkpoint database: {count} files scanned"
+            
+            # Get updated folder choices
+            folders = script_instance.get_checkpoint_folder_choices()
+            folder_update = gr.CheckboxGroup.update(choices=folders, value=folders)
+            
+            return status_msg, folder_update
+        except Exception as e:
+            error_msg = f"Checkpoint database: Error - {str(e)}"
+            return error_msg, gr.CheckboxGroup.update(choices=[], value=[])
+    
+    def force_rescan_checkpoints():
+        """Force rescan of local Checkpoints"""
+        try:
+            script_instance.scan_local_checkpoints(force_refresh=True)
+            count = script_instance.get_checkpoint_count()
+            status_msg = f"Checkpoint database: {count} files rescanned (forced)"
+            return status_msg
+        except Exception as e:
+            return f"Checkpoint database: Error - {str(e)}"
+    
+    def force_rescan_checkpoints_and_refresh_folders():
+        """Force rescan of local Checkpoints and refresh folder choices"""
+        try:
+            script_instance.scan_local_checkpoints(force_refresh=True)
+            count = script_instance.get_checkpoint_count()
+            status_msg = f"Checkpoint database: {count} files rescanned (forced)"
+            
+            # Get updated folder choices
+            folders = script_instance.get_checkpoint_folder_choices()
+            folder_update = gr.CheckboxGroup.update(choices=folders, value=folders)
+            
+            return status_msg, folder_update
+        except Exception as e:
+            error_msg = f"Checkpoint database: Error - {str(e)}"
+            return error_msg, gr.CheckboxGroup.update(choices=[], value=[])
+    
+    def clear_checkpoint_cache():
+        """Clear the Checkpoint database"""
+        try:
+            with script_instance.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM checkpoints')
+                conn.commit()
+                return "Checkpoint database: Cleared successfully"
+        except Exception as e:
+            return f"Checkpoint database: Error clearing database - {str(e)}"
+    
+    def get_checkpoint_database_stats():
+        """Get and format checkpoint database statistics"""
+        try:
+            with script_instance.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get basic stats
+                cursor.execute('SELECT COUNT(*) as total FROM checkpoints')
+                total_checkpoints = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) as with_hash FROM checkpoints WHERE sha256 IS NOT NULL AND sha256 != ""')
+                with_hash = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) as with_metadata FROM checkpoints WHERE metadata_json IS NOT NULL AND metadata_json != ""')
+                with_metadata = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT SUM(file_size) as total_size FROM checkpoints')
+                total_size = cursor.fetchone()[0] or 0
+                
+                # Get last scan info
+                cursor.execute('SELECT * FROM scan_stats WHERE content_type = "checkpoints" ORDER BY scan_date DESC LIMIT 1')
+                last_scan = cursor.fetchone()
+                
+                # Format file size
+                if total_size > 1024**3:
+                    size_str = f"{total_size / (1024**3):.1f} GB"
+                elif total_size > 1024**2:
+                    size_str = f"{total_size / (1024**2):.1f} MB"
+                else:
+                    size_str = f"{total_size / 1024:.1f} KB"
+                
+                # Format last scan
+                scan_info = "Never"
+                if last_scan:
+                    try:
+                        import datetime
+                        scan_time = datetime.datetime.fromtimestamp(last_scan['scan_date'])
+                        scan_info = f"{scan_time.strftime('%Y-%m-%d %H:%M')} ({last_scan.get('scan_type', 'unknown')})"
+                    except:
+                        scan_info = "Error parsing date"
+                
+                stats_html = f"""
+                <div style='background: #1a1a1a; padding: 15px; border-radius: 8px; font-size: 13px; color: #ccc;'>
+                    <h4 style='color: #fff; margin-top: 0;'>🎯 Checkpoint Database Statistics</h4>
+                    <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>
+                        <div>
+                            <strong>Total Checkpoints:</strong> {total_checkpoints}<br>
+                            <strong>With Hashes:</strong> {with_hash}<br>
+                            <strong>With Metadata:</strong> {with_metadata}
+                        </div>
+                        <div>
+                            <strong>Total Size:</strong> {size_str}<br>
+                            <strong>Last Scan:</strong> {scan_info}
+                        </div>
+                    </div>
+                </div>
+                """
+                return stats_html
+                
+        except Exception as e:
+            return f"Error formatting checkpoint statistics: {e}"
+    
+    def search_checkpoints_with_filters(name_query, hash_query, folder_query, has_metadata, has_hash, selected_folders):
+        """Search Checkpoints in database with all filters"""
+        try:
+            # Perform search with all filters
+            results = script_instance.search_checkpoints_db(
+                name_query=name_query or "",
+                hash_query=hash_query or "",
+                folder_query=folder_query or "",
+                has_metadata=has_metadata,
+                has_hash=has_hash,
+                selected_folders=selected_folders if selected_folders else None,
+                limit=200
+            )
+            
+            # Build query info
+            query_parts = []
+            if name_query:
+                query_parts.append(f"name contains '{name_query}'")
+            if hash_query:
+                query_parts.append(f"hash contains '{hash_query}'")
+            if folder_query:
+                query_parts.append(f"folder contains '{folder_query}'")
+            if selected_folders:
+                if len(selected_folders) == 1:
+                    query_parts.append(f"folder: {selected_folders[0]}")
+                else:
+                    query_parts.append(f"folders: {', '.join(selected_folders[:3])}{'...' if len(selected_folders) > 3 else ''}")
+            if has_metadata:
+                query_parts.append("has metadata")
+            if has_hash:
+                query_parts.append("has hash")
+            
+            query_info = "Filters: " + ", ".join(query_parts) if query_parts else "No filters applied"
+            
+            # Format results
+            results_html = script_instance.format_checkpoint_database_display(results, query_info)
+            
+            return results_html
+            
+        except Exception as e:
+            error_msg = f"Search error: {str(e)}"
+            error_html = f"""
+            <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
+                <h3>🚨 Search Error</h3>
+                <p>{error_msg}</p>
+            </div>
+            """
+            return error_html
+    
+    def show_all_checkpoints():
+        """Show all Checkpoints in database"""
+        try:
+            results = script_instance.search_checkpoints_db(limit=200)
+            results_html = script_instance.format_checkpoint_database_display(results, "Showing all Checkpoints (limited to 200)")
+            return results_html
+        except Exception as e:
+            return f"<div style='color: #ff6b6b;'>Error loading Checkpoints: {str(e)}</div>"
+    
+    def refresh_checkpoint_folder_choices():
+        """Refresh the checkpoint folder filter choices and select all by default"""
+        try:
+            folders = script_instance.get_checkpoint_folder_choices()
+            # Return both choices and values (all selected by default)
+            return gr.CheckboxGroup.update(choices=folders, value=folders)
+        except Exception as e:
+            print(f"Error refreshing checkpoint folder choices: {e}")
+            return gr.CheckboxGroup.update(choices=[], value=[])
+
     # Main Controls Event Handlers
     def clear_prompt_cache():
         """Clear the prompt cache"""
@@ -2423,15 +3246,28 @@ def _create_event_handlers():
         'test_api_connection': test_api_connection,
         'refresh_lora_list': refresh_lora_list,
         'scan_local_loras': scan_local_loras,
+        'scan_and_refresh_folders': scan_and_refresh_folders,
         'force_rescan_loras': force_rescan_loras,
+        'force_rescan_and_refresh_folders': force_rescan_and_refresh_folders,
         'clear_lora_cache': clear_lora_cache,
         'vacuum_database': vacuum_database,
         'get_database_stats': get_database_stats,
         'search_loras': search_loras,
         'search_loras_with_filters': search_loras_with_filters,
         'show_all_loras': show_all_loras,
+        'refresh_folder_choices': refresh_folder_choices,
         'show_folders': show_folders,
         'clear_prompt_cache': clear_prompt_cache,
+        # Checkpoint Event Handlers
+        'scan_local_checkpoints': scan_local_checkpoints,
+        'scan_checkpoints_and_refresh_folders': scan_checkpoints_and_refresh_folders,
+        'force_rescan_checkpoints': force_rescan_checkpoints,
+        'force_rescan_checkpoints_and_refresh_folders': force_rescan_checkpoints_and_refresh_folders,
+        'clear_checkpoint_cache': clear_checkpoint_cache,
+        'get_checkpoint_database_stats': get_checkpoint_database_stats,
+        'search_checkpoints_with_filters': search_checkpoints_with_filters,
+        'show_all_checkpoints': show_all_checkpoints,
+        'refresh_checkpoint_folder_choices': refresh_checkpoint_folder_choices,
         'fetch_new_prompts': fetch_new_prompts,
         'get_prompts_and_update_queue': get_prompts_and_update_queue,
         'refresh_queue_display': refresh_queue_display,
@@ -2454,9 +3290,10 @@ def on_ui_tabs():
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
         with gr.Tabs():
-            # Create all three tabs
+            # Create all four tabs
             main_controls_tab = _create_main_controls_tab()
             queue_tab = _create_queue_tab()
+            checkpoint_management_tab = _create_checkpoint_management_tab()
             lora_management_tab = _create_lora_management_tab()
         
         # Event handlers
@@ -2578,6 +3415,55 @@ def on_ui_tabs():
             outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
         )
         
+        # Checkpoint Management Tab Event Bindings
+        checkpoint_management_tab['checkpoint_refresh_stats_btn'].click(
+            event_handlers['get_checkpoint_database_stats'],
+            outputs=[checkpoint_management_tab['checkpoint_db_stats']]
+        )
+        
+        checkpoint_management_tab['checkpoint_scan_db_btn'].click(
+            event_handlers['scan_checkpoints_and_refresh_folders'],
+            outputs=[checkpoint_management_tab['checkpoint_results_info'], checkpoint_management_tab['checkpoint_folder_filter']]
+        )
+        
+        checkpoint_management_tab['checkpoint_force_scan_btn'].click(
+            event_handlers['force_rescan_checkpoints_and_refresh_folders'],
+            outputs=[checkpoint_management_tab['checkpoint_results_info'], checkpoint_management_tab['checkpoint_folder_filter']]
+        )
+        
+        checkpoint_management_tab['checkpoint_clear_db_btn'].click(
+            event_handlers['clear_checkpoint_cache'],
+            outputs=[checkpoint_management_tab['checkpoint_results_info']]
+        )
+        
+        checkpoint_management_tab['checkpoint_vacuum_db_btn'].click(
+            event_handlers['vacuum_database'],
+            outputs=[checkpoint_management_tab['checkpoint_results_info']]
+        )
+        
+        checkpoint_management_tab['checkpoint_search_btn'].click(
+            event_handlers['search_checkpoints_with_filters'],
+            inputs=[checkpoint_management_tab['checkpoint_search_name'], checkpoint_management_tab['checkpoint_search_hash'], checkpoint_management_tab['checkpoint_search_folder'], checkpoint_management_tab['checkpoint_filter_has_metadata'], checkpoint_management_tab['checkpoint_filter_has_hash'], checkpoint_management_tab['checkpoint_folder_filter']],
+            outputs=[checkpoint_management_tab['checkpoint_display']]
+        )
+        
+        checkpoint_management_tab['checkpoint_show_all_btn'].click(
+            event_handlers['show_all_checkpoints'],
+            outputs=[checkpoint_management_tab['checkpoint_display']]
+        )
+        
+        checkpoint_management_tab['checkpoint_refresh_folders_btn'].click(
+            event_handlers['refresh_checkpoint_folder_choices'],
+            outputs=[checkpoint_management_tab['checkpoint_folder_filter']]
+        )
+        
+        # Auto-trigger search when checkpoint folder filter changes
+        checkpoint_management_tab['checkpoint_folder_filter'].change(
+            event_handlers['search_checkpoints_with_filters'],
+            inputs=[checkpoint_management_tab['checkpoint_search_name'], checkpoint_management_tab['checkpoint_search_hash'], checkpoint_management_tab['checkpoint_search_folder'], checkpoint_management_tab['checkpoint_filter_has_metadata'], checkpoint_management_tab['checkpoint_filter_has_hash'], checkpoint_management_tab['checkpoint_folder_filter']],
+            outputs=[checkpoint_management_tab['checkpoint_display']]
+        )
+        
         # Lora Management Tab Event Bindings
         lora_management_tab['refresh_stats_btn'].click(
             event_handlers['get_database_stats'],
@@ -2585,13 +3471,13 @@ def on_ui_tabs():
         )
         
         lora_management_tab['scan_db_btn'].click(
-            event_handlers['scan_local_loras'],
-            outputs=[lora_management_tab['results_info']]
+            event_handlers['scan_and_refresh_folders'],
+            outputs=[lora_management_tab['results_info'], lora_management_tab['folder_filter']]
         )
         
         lora_management_tab['force_scan_btn'].click(
-            event_handlers['force_rescan_loras'],
-            outputs=[lora_management_tab['results_info']]
+            event_handlers['force_rescan_and_refresh_folders'],
+            outputs=[lora_management_tab['results_info'], lora_management_tab['folder_filter']]
         )
         
         lora_management_tab['clear_db_btn'].click(
@@ -2606,7 +3492,7 @@ def on_ui_tabs():
         
         lora_management_tab['search_btn'].click(
             event_handlers['search_loras_with_filters'],
-            inputs=[lora_management_tab['search_name'], lora_management_tab['search_hash'], lora_management_tab['search_folder'], lora_management_tab['filter_has_metadata'], lora_management_tab['filter_has_hash']],
+            inputs=[lora_management_tab['search_name'], lora_management_tab['search_hash'], lora_management_tab['search_folder'], lora_management_tab['filter_has_metadata'], lora_management_tab['filter_has_hash'], lora_management_tab['folder_filter']],
             outputs=[lora_management_tab['lora_display']]
         )
         
@@ -2615,14 +3501,49 @@ def on_ui_tabs():
             outputs=[lora_management_tab['lora_display']]
         )
         
-        lora_management_tab['show_folders_btn'].click(
-            event_handlers['show_folders'],
+        lora_management_tab['refresh_folders_btn'].click(
+            event_handlers['refresh_folder_choices'],
+            outputs=[lora_management_tab['folder_filter']]
+        )
+        
+        # Auto-trigger search when folder filter changes
+        lora_management_tab['folder_filter'].change(
+            event_handlers['search_loras_with_filters'],
+            inputs=[lora_management_tab['search_name'], lora_management_tab['search_hash'], lora_management_tab['search_folder'], lora_management_tab['filter_has_metadata'], lora_management_tab['filter_has_hash'], lora_management_tab['folder_filter']],
             outputs=[lora_management_tab['lora_display']]
         )
         
         # Initialize LORA list on load
         loras = script_instance.get_available_loras()
         main_controls_tab['lora_selection'].choices = loras
+        
+        # Initialize folder filter choices for Lora tab
+        try:
+            folders = script_instance.get_folder_choices()
+            lora_management_tab['folder_filter'].choices = folders
+            lora_management_tab['folder_filter'].value = folders  # Select all by default
+            
+            # Show all Loras by default
+            if folders:
+                initial_results = script_instance.search_loras_db(selected_folders=folders, limit=200)
+                initial_display = script_instance.format_lora_database_display(initial_results, "Showing all Loras")
+                lora_management_tab['lora_display'].value = initial_display
+        except Exception as e:
+            print(f"[Civitai Randomizer] Error initializing Lora folder filter: {e}")
+        
+        # Initialize folder filter choices for Checkpoint tab
+        try:
+            checkpoint_folders = script_instance.get_checkpoint_folder_choices()
+            checkpoint_management_tab['checkpoint_folder_filter'].choices = checkpoint_folders
+            checkpoint_management_tab['checkpoint_folder_filter'].value = checkpoint_folders  # Select all by default
+            
+            # Show all Checkpoints by default
+            if checkpoint_folders:
+                initial_checkpoint_results = script_instance.search_checkpoints_db(selected_folders=checkpoint_folders, limit=200)
+                initial_checkpoint_display = script_instance.format_checkpoint_database_display(initial_checkpoint_results, "Showing all Checkpoints")
+                checkpoint_management_tab['checkpoint_display'].value = initial_checkpoint_display
+        except Exception as e:
+            print(f"[Civitai Randomizer] Error initializing Checkpoint folder filter: {e}")
         
         print(f"[Civitai Randomizer] ✅ Tab interface with subtabs created successfully")
     
@@ -2652,6 +3573,17 @@ def on_ui_settings():
             "Local Lora Directory Path (leave empty for auto-detection)",
             gr.Textbox,
             {"placeholder": "/path/to/your/lora/folder"},
+            section=section
+        )
+    )
+    
+    shared.opts.add_option(
+        "civitai_checkpoint_path",
+        shared.OptionInfo(
+            "",
+            "Local Checkpoint Directory Path (leave empty for auto-detection)",
+            gr.Textbox,
+            {"placeholder": "/path/to/your/checkpoint/folder"},
             section=section
         )
     )
