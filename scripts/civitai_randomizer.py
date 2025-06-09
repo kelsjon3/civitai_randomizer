@@ -10,6 +10,8 @@ import json
 import re
 import os
 import time
+import sqlite3
+import hashlib
 from typing import List, Dict, Optional, Tuple, Any
 
 class CivitaiRandomizerScript(scripts.Script):
@@ -40,10 +42,9 @@ class CivitaiRandomizerScript(scripts.Script):
         self.last_sort_method = "Most Reactions"
         self.last_next_page_url = None  # Store next page URL from API response
         
-        # Lora availability checking
-        self.local_loras_cache = {}  # Cache of local Loras: {filename: {sha256, metadata}}
-        self.lora_cache_timestamp = 0  # When the cache was last updated
-        self.lora_cache_ttl = 300  # Cache TTL in seconds (5 minutes)
+        # SQLite database for persistent Lora storage
+        self.db_path = os.path.join(os.path.dirname(__file__), "lora_database.db")
+        self.init_database()
         
         # Remove problematic on_after_component calls for now
         # We'll try a different approach
@@ -612,6 +613,139 @@ class CivitaiRandomizerScript(scripts.Script):
         
         return lora_path if lora_path and os.path.exists(lora_path) else None
 
+    def init_database(self):
+        """Initialize the SQLite database for Lora storage"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Create loras table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS loras (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        filename TEXT NOT NULL UNIQUE,
+                        file_path TEXT NOT NULL,
+                        relative_path TEXT NOT NULL,
+                        sha256 TEXT,
+                        file_size INTEGER,
+                        modified_time REAL,
+                        scan_time REAL,
+                        metadata_json TEXT,
+                        model_id TEXT,
+                        model_version_id TEXT,
+                        name TEXT,
+                        description TEXT,
+                        activation_text TEXT,
+                        sd_version TEXT,
+                        base_model TEXT,
+                        created_at REAL DEFAULT (datetime('now')),
+                        updated_at REAL DEFAULT (datetime('now'))
+                    )
+                ''')
+                
+                # Create indexes for fast lookups
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_sha256 ON loras(sha256)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_name ON loras(name)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_filename ON loras(filename)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_modified_time ON loras(modified_time)')
+                
+                # Create scan_stats table for tracking scan progress
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS scan_stats (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        scan_date REAL,
+                        lora_directory TEXT,
+                        total_files INTEGER,
+                        processed_files INTEGER,
+                        files_with_metadata INTEGER,
+                        files_with_hashes INTEGER,
+                        scan_duration REAL,
+                        scan_type TEXT
+                    )
+                ''')
+                
+                conn.commit()
+                print(f"[Lora DB] Database initialized successfully: {self.db_path}")
+                
+        except Exception as e:
+            print(f"[Lora DB] Error initializing database: {e}")
+
+    def get_db_connection(self):
+        """Get a database connection with proper configuration"""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row  # Enable dict-like access to rows
+        return conn
+
+    def get_lora_count(self) -> int:
+        """Get total number of Loras in database"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT COUNT(*) FROM loras')
+                return cursor.fetchone()[0]
+        except Exception as e:
+            print(f"[Lora DB] Error getting Lora count: {e}")
+            return 0
+
+    def clear_database(self):
+        """Clear all Lora data from database"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM loras')
+                cursor.execute('DELETE FROM scan_stats')
+                conn.commit()
+                print(f"[Lora DB] Database cleared successfully")
+                return True
+        except Exception as e:
+            print(f"[Lora DB] Error clearing database: {e}")
+            return False
+
+    def vacuum_database(self):
+        """Vacuum database to optimize performance"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('VACUUM')
+                print(f"[Lora DB] Database vacuumed successfully")
+                return True
+        except Exception as e:
+            print(f"[Lora DB] Error vacuuming database: {e}")
+            return False
+
+    def get_database_stats(self) -> Dict[str, Any]:
+        """Get database statistics"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get basic stats
+                cursor.execute('SELECT COUNT(*) as total FROM loras')
+                total_loras = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) as with_hash FROM loras WHERE sha256 IS NOT NULL AND sha256 != ""')
+                with_hash = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) as with_metadata FROM loras WHERE metadata_json IS NOT NULL AND metadata_json != ""')
+                with_metadata = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT SUM(file_size) as total_size FROM loras')
+                total_size = cursor.fetchone()[0] or 0
+                
+                # Get last scan info
+                cursor.execute('SELECT * FROM scan_stats ORDER BY scan_date DESC LIMIT 1')
+                last_scan = cursor.fetchone()
+                
+                return {
+                    'total_loras': total_loras,
+                    'with_hash': with_hash,
+                    'with_metadata': with_metadata,
+                    'total_size': total_size,
+                    'last_scan': dict(last_scan) if last_scan else None
+                }
+        except Exception as e:
+            print(f"[Lora DB] Error getting database stats: {e}")
+            return {}
+
     def calculate_file_sha256(self, file_path: str) -> Optional[str]:
         """Calculate SHA256 hash of a file"""
         try:
@@ -643,64 +777,191 @@ class CivitaiRandomizerScript(scripts.Script):
         return {}
 
     def scan_local_loras(self, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
-        """Scan local Loras and cache their metadata with SHA256 hashes"""
-        current_time = time.time()
+        """Scan local Loras and store in SQLite database with incremental updates"""
+        start_time = time.time()
         
-        # Check if cache is still valid
-        if not force_refresh and self.local_loras_cache and (current_time - self.lora_cache_timestamp) < self.lora_cache_ttl:
-            print(f"[Lora Scanner] Using cached Lora data ({len(self.local_loras_cache)} items)")
-            return self.local_loras_cache
-        
-        print(f"[Lora Scanner] Scanning local Loras...")
+        print(f"[Lora DB] Starting Lora scan (force_refresh={force_refresh})...")
         lora_path = self.get_lora_directory_path()
         
         if not lora_path:
-            print(f"[Lora Scanner] No valid Lora directory found")
+            print(f"[Lora DB] No valid Lora directory found")
             return {}
         
-        print(f"[Lora Scanner] Scanning directory: {lora_path}")
-        lora_cache = {}
-        scanned_count = 0
-        metadata_count = 0
-        hash_count = 0
+        print(f"[Lora DB] Scanning directory: {lora_path}")
         
+        # Get existing Loras from database
+        existing_loras = {}
+        if not force_refresh:
+            try:
+                with self.get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('SELECT * FROM loras')
+                    for row in cursor.fetchall():
+                        existing_loras[row['relative_path']] = dict(row)
+                print(f"[Lora DB] Found {len(existing_loras)} existing Loras in database")
+            except Exception as e:
+                print(f"[Lora DB] Error loading existing Loras: {e}")
+        
+        # Scan filesystem
+        discovered_files = {}
         for root, dirs, files in os.walk(lora_path):
             for file in files:
                 if file.endswith(('.safetensors', '.pt', '.ckpt')):
                     file_path = os.path.join(root, file)
                     relative_path = os.path.relpath(file_path, lora_path)
-                    scanned_count += 1
                     
-                    # Load metadata
-                    metadata = self.load_lora_metadata(file_path)
-                    if metadata:
-                        metadata_count += 1
-                    
-                    # Calculate hash (this might take time for large files)
-                    file_hash = self.calculate_file_sha256(file_path)
-                    if file_hash:
-                        hash_count += 1
-                    
-                    # Store in cache
-                    lora_cache[relative_path] = {
-                        'file_path': file_path,
-                        'sha256': file_hash,
-                        'metadata': metadata,
-                        'file_size': os.path.getsize(file_path) if os.path.exists(file_path) else 0,
-                        'modified_time': os.path.getmtime(file_path) if os.path.exists(file_path) else 0
-                    }
+                    try:
+                        file_stat = os.stat(file_path)
+                        discovered_files[relative_path] = {
+                            'file_path': file_path,
+                            'file_size': file_stat.st_size,
+                            'modified_time': file_stat.st_mtime
+                        }
+                    except Exception as e:
+                        print(f"[Lora DB] Error reading file stats for {file_path}: {e}")
         
-        # Update cache
-        self.local_loras_cache = lora_cache
-        self.lora_cache_timestamp = current_time
+        print(f"[Lora DB] Discovered {len(discovered_files)} Lora files on disk")
         
-        print(f"[Lora Scanner] Scan complete:")
-        print(f"  Files scanned: {scanned_count}")
+        # Determine what needs to be processed
+        files_to_process = []
+        files_to_remove = []
+        
+        if force_refresh:
+            # Process all discovered files
+            files_to_process = list(discovered_files.keys())
+        else:
+            # Only process new or modified files
+            for relative_path, file_info in discovered_files.items():
+                existing = existing_loras.get(relative_path)
+                if not existing or existing['modified_time'] != file_info['modified_time']:
+                    files_to_process.append(relative_path)
+            
+            # Find files that no longer exist
+            for relative_path in existing_loras:
+                if relative_path not in discovered_files:
+                    files_to_remove.append(relative_path)
+        
+        print(f"[Lora DB] Processing {len(files_to_process)} files, removing {len(files_to_remove)} orphaned entries")
+        
+        # Remove orphaned entries
+        if files_to_remove:
+            try:
+                with self.get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    for relative_path in files_to_remove:
+                        cursor.execute('DELETE FROM loras WHERE relative_path = ?', (relative_path,))
+                    conn.commit()
+                    print(f"[Lora DB] Removed {len(files_to_remove)} orphaned entries")
+            except Exception as e:
+                print(f"[Lora DB] Error removing orphaned entries: {e}")
+        
+        # Process files
+        processed_count = 0
+        metadata_count = 0
+        hash_count = 0
+        
+        for relative_path in files_to_process:
+            file_info = discovered_files[relative_path]
+            file_path = file_info['file_path']
+            
+            try:
+                # Load metadata
+                metadata = self.load_lora_metadata(file_path)
+                metadata_json = json.dumps(metadata) if metadata else None
+                if metadata:
+                    metadata_count += 1
+                
+                # Calculate hash
+                file_hash = self.calculate_file_sha256(file_path)
+                if file_hash:
+                    hash_count += 1
+                
+                # Extract metadata fields
+                model_id = metadata.get('modelId', '') if metadata else ''
+                model_version_id = metadata.get('modelVersionId', '') if metadata else ''
+                name = metadata.get('name', '') if metadata else ''
+                description = metadata.get('description', '') if metadata else ''
+                activation_text = metadata.get('activation text', '') if metadata else ''
+                sd_version = metadata.get('sd version', '') if metadata else ''
+                base_model = metadata.get('baseModel', '') if metadata else ''
+                
+                # Insert or update in database
+                with self.get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO loras (
+                            filename, file_path, relative_path, sha256, file_size, modified_time,
+                            scan_time, metadata_json, model_id, model_version_id, name, description,
+                            activation_text, sd_version, base_model, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ''', (
+                        os.path.basename(file_path), file_path, relative_path, file_hash,
+                        file_info['file_size'], file_info['modified_time'], time.time(),
+                        metadata_json, model_id, model_version_id, name, description,
+                        activation_text, sd_version, base_model
+                    ))
+                    conn.commit()
+                
+                processed_count += 1
+                
+                # Progress logging
+                if processed_count % 10 == 0:
+                    print(f"[Lora DB] Processed {processed_count}/{len(files_to_process)} files...")
+                
+            except Exception as e:
+                print(f"[Lora DB] Error processing {file_path}: {e}")
+        
+        # Record scan statistics
+        scan_duration = time.time() - start_time
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO scan_stats (
+                        scan_date, lora_directory, total_files, processed_files,
+                        files_with_metadata, files_with_hashes, scan_duration, scan_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    time.time(), lora_path, len(discovered_files), processed_count,
+                    metadata_count, hash_count, scan_duration,
+                    'full' if force_refresh else 'incremental'
+                ))
+                conn.commit()
+        except Exception as e:
+            print(f"[Lora DB] Error recording scan stats: {e}")
+        
+        print(f"[Lora DB] Scan complete:")
+        print(f"  Total files discovered: {len(discovered_files)}")
+        print(f"  Files processed: {processed_count}")
         print(f"  With metadata: {metadata_count}")
         print(f"  With hashes: {hash_count}")
-        print(f"  Cache updated with {len(lora_cache)} Loras")
+        print(f"  Scan duration: {scan_duration:.2f} seconds")
         
-        return lora_cache
+        # Return database stats in legacy format for compatibility
+        return self._get_legacy_cache_format()
+
+    def _get_legacy_cache_format(self) -> Dict[str, Dict[str, Any]]:
+        """Convert database entries to legacy cache format for compatibility"""
+        legacy_cache = {}
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM loras')
+                for row in cursor.fetchall():
+                    row_dict = dict(row)
+                    metadata = json.loads(row_dict['metadata_json']) if row_dict['metadata_json'] else {}
+                    
+                    legacy_cache[row_dict['relative_path']] = {
+                        'file_path': row_dict['file_path'],
+                        'sha256': row_dict['sha256'],
+                        'metadata': metadata,
+                        'file_size': row_dict['file_size'],
+                        'modified_time': row_dict['modified_time']
+                    }
+        except Exception as e:
+            print(f"[Lora DB] Error converting to legacy format: {e}")
+        
+        return legacy_cache
 
     def parse_loras_from_civitai_prompt(self, prompt_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Parse Lora information from Civitai prompt metadata"""
@@ -797,10 +1058,7 @@ class CivitaiRandomizerScript(scripts.Script):
         return loras
 
     def check_lora_availability(self, civitai_loras: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Check which Civitai Loras are available locally"""
-        # Ensure local cache is up to date
-        self.scan_local_loras()
-        
+        """Check which Civitai Loras are available locally using database"""
         availability_results = []
         
         for civitai_lora in civitai_loras:
@@ -816,7 +1074,7 @@ class CivitaiRandomizerScript(scripts.Script):
             # Method 1: Exact hash match (most reliable)
             civitai_hash = civitai_lora.get('hash')
             if civitai_hash:
-                hash_matches = self._find_loras_by_hash(civitai_hash)
+                hash_matches = self._find_loras_by_hash_db(civitai_hash)
                 if hash_matches:
                     result['available'] = True
                     result['local_matches'] = hash_matches
@@ -827,7 +1085,7 @@ class CivitaiRandomizerScript(scripts.Script):
             # Method 2: Name matching (less reliable but still useful)
             civitai_name = civitai_lora.get('name', '').lower()
             if civitai_name:
-                name_matches = self._find_loras_by_name(civitai_name)
+                name_matches = self._find_loras_by_name_db(civitai_name)
                 if name_matches:
                     result['available'] = True
                     result['local_matches'] = name_matches
@@ -837,90 +1095,279 @@ class CivitaiRandomizerScript(scripts.Script):
         
         return availability_results
 
-    def _find_loras_by_hash(self, target_hash: str) -> List[Dict[str, Any]]:
-        """Find local Loras that match the given hash"""
+    def _find_loras_by_hash_db(self, target_hash: str) -> List[Dict[str, Any]]:
+        """Find local Loras that match the given hash using database"""
         matches = []
         target_hash_upper = target_hash.upper() if target_hash else None
         
         if not target_hash_upper:
             return matches
         
-        for filename, lora_data in self.local_loras_cache.items():
-            # Check direct hash match
-            if lora_data.get('sha256') == target_hash_upper:
-                matches.append({
-                    'filename': filename,
-                    'file_path': lora_data.get('file_path'),
-                    'match_type': 'sha256_direct'
-                })
-            
-            # Check hash from metadata
-            metadata = lora_data.get('metadata', {})
-            if isinstance(metadata, dict):
-                metadata_hash = metadata.get('sha256', '').upper()
-                if metadata_hash == target_hash_upper:
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check direct hash match
+                cursor.execute('SELECT * FROM loras WHERE UPPER(sha256) = ?', (target_hash_upper,))
+                for row in cursor.fetchall():
                     matches.append({
-                        'filename': filename,
-                        'file_path': lora_data.get('file_path'),
-                        'match_type': 'sha256_metadata'
+                        'filename': row['filename'],
+                        'file_path': row['file_path'],
+                        'match_type': 'sha256_direct',
+                        'relative_path': row['relative_path']
                     })
+                
+                # Check hash from metadata
+                cursor.execute('''
+                    SELECT * FROM loras 
+                    WHERE metadata_json IS NOT NULL 
+                    AND json_extract(metadata_json, '$.sha256') IS NOT NULL
+                    AND UPPER(json_extract(metadata_json, '$.sha256')) = ?
+                ''', (target_hash_upper,))
+                
+                for row in cursor.fetchall():
+                    # Avoid duplicates
+                    if not any(m['file_path'] == row['file_path'] for m in matches):
+                        matches.append({
+                            'filename': row['filename'],
+                            'file_path': row['file_path'],
+                            'match_type': 'sha256_metadata',
+                            'relative_path': row['relative_path']
+                        })
+                        
+        except Exception as e:
+            print(f"[Lora DB] Error finding Loras by hash: {e}")
         
         return matches
 
-    def _find_loras_by_name(self, target_name: str) -> List[Dict[str, Any]]:
-        """Find local Loras that match the given name (fuzzy matching)"""
+    def _find_loras_by_name_db(self, target_name: str) -> List[Dict[str, Any]]:
+        """Find local Loras that match the given name using database"""
         matches = []
         target_name_lower = target_name.lower() if target_name else ""
         
         if not target_name_lower:
             return matches
         
-        for filename, lora_data in self.local_loras_cache.items():
-            # Remove file extension for comparison
-            base_filename = os.path.splitext(filename)[0].lower()
-            
-            # Exact filename match
-            if base_filename == target_name_lower:
-                matches.append({
-                    'filename': filename,
-                    'file_path': lora_data.get('file_path'),
-                    'match_type': 'filename_exact'
-                })
-                continue
-            
-            # Partial filename match
-            if target_name_lower in base_filename or base_filename in target_name_lower:
-                matches.append({
-                    'filename': filename,
-                    'file_path': lora_data.get('file_path'),
-                    'match_type': 'filename_partial'
-                })
-                continue
-            
-            # Check metadata for name matches
-            metadata = lora_data.get('metadata', {})
-            if isinstance(metadata, dict):
-                # Check various name fields in metadata
-                name_fields = ['name', 'modelName', 'title']
-                for field in name_fields:
-                    if field in metadata:
-                        meta_name = str(metadata[field]).lower()
-                        if target_name_lower == meta_name:
-                            matches.append({
-                                'filename': filename,
-                                'file_path': lora_data.get('file_path'),
-                                'match_type': f'metadata_{field}_exact'
-                            })
-                            break
-                        elif target_name_lower in meta_name or meta_name in target_name_lower:
-                            matches.append({
-                                'filename': filename,
-                                'file_path': lora_data.get('file_path'),
-                                'match_type': f'metadata_{field}_partial'
-                            })
-                            break
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Exact filename match (without extension)
+                cursor.execute('''
+                    SELECT * FROM loras 
+                    WHERE LOWER(REPLACE(REPLACE(REPLACE(filename, '.safetensors', ''), '.pt', ''), '.ckpt', '')) = ?
+                ''', (target_name_lower,))
+                
+                for row in cursor.fetchall():
+                    matches.append({
+                        'filename': row['filename'],
+                        'file_path': row['file_path'],
+                        'match_type': 'filename_exact',
+                        'relative_path': row['relative_path']
+                    })
+                
+                # Partial filename match
+                if not matches:  # Only do partial if no exact matches
+                    cursor.execute('''
+                        SELECT * FROM loras 
+                        WHERE LOWER(filename) LIKE ? OR LOWER(filename) LIKE ?
+                    ''', (f'%{target_name_lower}%', f'{target_name_lower}%'))
+                    
+                    for row in cursor.fetchall():
+                        matches.append({
+                            'filename': row['filename'],
+                            'file_path': row['file_path'],
+                            'match_type': 'filename_partial',
+                            'relative_path': row['relative_path']
+                        })
+                
+                # Check metadata name fields
+                if not matches:  # Only if no filename matches
+                    cursor.execute('''
+                        SELECT * FROM loras 
+                        WHERE LOWER(name) = ? OR LOWER(name) LIKE ?
+                        OR json_extract(metadata_json, '$.name') IS NOT NULL
+                        AND LOWER(json_extract(metadata_json, '$.name')) = ?
+                    ''', (target_name_lower, f'%{target_name_lower}%', target_name_lower))
+                    
+                    for row in cursor.fetchall():
+                        matches.append({
+                            'filename': row['filename'],
+                            'file_path': row['file_path'],
+                            'match_type': 'metadata_name',
+                            'relative_path': row['relative_path']
+                        })
+                        
+        except Exception as e:
+            print(f"[Lora DB] Error finding Loras by name: {e}")
         
         return matches
+
+    def search_loras_db(self, name_query: str = "", hash_query: str = "", 
+                       has_metadata: bool = False, has_hash: bool = False, 
+                       limit: int = 100) -> List[Dict[str, Any]]:
+        """Search Loras in database with various filters"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Build query dynamically based on filters
+                where_conditions = []
+                params = []
+                
+                if name_query:
+                    where_conditions.append(
+                        '(LOWER(name) LIKE ? OR LOWER(filename) LIKE ? OR LOWER(description) LIKE ?)'
+                    )
+                    search_term = f'%{name_query.lower()}%'
+                    params.extend([search_term, search_term, search_term])
+                
+                if hash_query:
+                    where_conditions.append('UPPER(sha256) LIKE ?')
+                    params.append(f'%{hash_query.upper()}%')
+                
+                if has_metadata:
+                    where_conditions.append('metadata_json IS NOT NULL AND metadata_json != ""')
+                
+                if has_hash:
+                    where_conditions.append('sha256 IS NOT NULL AND sha256 != ""')
+                
+                # Construct final query
+                base_query = 'SELECT * FROM loras'
+                if where_conditions:
+                    base_query += ' WHERE ' + ' AND '.join(where_conditions)
+                base_query += ' ORDER BY filename LIMIT ?'
+                params.append(limit)
+                
+                cursor.execute(base_query, params)
+                results = []
+                for row in cursor.fetchall():
+                    row_dict = dict(row)
+                    # Parse metadata JSON
+                    if row_dict['metadata_json']:
+                        try:
+                            row_dict['metadata'] = json.loads(row_dict['metadata_json'])
+                        except:
+                            row_dict['metadata'] = {}
+                    else:
+                        row_dict['metadata'] = {}
+                    results.append(row_dict)
+                
+                return results
+                
+        except Exception as e:
+            print(f"[Lora DB] Error searching database: {e}")
+            return []
+
+    def format_lora_database_display(self, loras: List[Dict[str, Any]], query_info: str = "") -> str:
+        """Format Lora database results for HTML display"""
+        if not loras:
+            return """
+            <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
+                <h3>📭 No Loras Found</h3>
+                <p>No Loras match your search criteria. Try adjusting your filters or scan your Lora directory.</p>
+            </div>
+            """
+        
+        # Generate HTML for each Lora
+        lora_items = []
+        
+        for lora in loras:
+            # Format file size
+            file_size = lora.get('file_size', 0)
+            if file_size > 1024 * 1024 * 1024:
+                size_str = f"{file_size / (1024**3):.1f} GB"
+            elif file_size > 1024 * 1024:
+                size_str = f"{file_size / (1024**2):.1f} MB"
+            elif file_size > 1024:
+                size_str = f"{file_size / 1024:.1f} KB"
+            else:
+                size_str = f"{file_size} bytes"
+            
+            # Format dates
+            import datetime
+            try:
+                if lora.get('modified_time'):
+                    mod_date = datetime.datetime.fromtimestamp(lora['modified_time']).strftime('%Y-%m-%d %H:%M')
+                else:
+                    mod_date = "Unknown"
+            except:
+                mod_date = "Unknown"
+            
+            # Status indicators
+            has_hash = bool(lora.get('sha256'))
+            has_metadata = bool(lora.get('metadata_json'))
+            
+            hash_indicator = "✅" if has_hash else "❌"
+            metadata_indicator = "✅" if has_metadata else "❌"
+            
+            # Metadata info
+            metadata = lora.get('metadata', {})
+            model_id = metadata.get('modelId', '')
+            description = metadata.get('description', '')
+            
+            # Create Lora item HTML
+            lora_item = f"""
+            <div style='margin-bottom: 15px; padding: 12px; border: 1px solid #444; border-radius: 8px; 
+                       background: #2a2a2a; color: #fff;'>
+                
+                <!-- Header with filename and status -->
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
+                    <strong style='color: #4ade80; font-size: 14px;'>{lora.get('filename', 'Unknown')}</strong>
+                    <div style='display: flex; gap: 8px; align-items: center;'>
+                        <span style='font-size: 12px;'>{hash_indicator} Hash</span>
+                        <span style='font-size: 12px;'>{metadata_indicator} Metadata</span>
+                    </div>
+                </div>
+                
+                <!-- File info -->
+                <div style='font-size: 11px; color: #bbb; margin-bottom: 8px;'>
+                    <strong>Path:</strong> {lora.get('relative_path', 'Unknown')}<br>
+                    <strong>Size:</strong> {size_str} | <strong>Modified:</strong> {mod_date}
+                </div>
+                
+                <!-- Hash info -->
+                {f'''
+                <div style='margin-bottom: 8px;'>
+                    <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>SHA256 Hash:</strong></div>
+                    <code style='background: #1a1a1a; padding: 4px 6px; border-radius: 4px; font-size: 10px; 
+                                color: #10b981; border: 1px solid #374151; word-break: break-all;'>{lora.get('sha256')}</code>
+                </div>
+                ''' if has_hash else ''}
+                
+                <!-- Metadata info -->
+                {f'''
+                <div style='margin-bottom: 8px;'>
+                    <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>Metadata:</strong></div>
+                    <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; 
+                               border: 1px solid #374151; line-height: 1.4;'>
+                        {f"<strong>Model ID:</strong> {model_id}<br>" if model_id else ""}
+                        {f"<strong>Name:</strong> {metadata.get('name', '')}<br>" if metadata.get('name') else ""}
+                        {f"<strong>Description:</strong> {description}<br>" if description else ""}
+                        {f"<strong>Base Model:</strong> {metadata.get('baseModel', '')}<br>" if metadata.get('baseModel') else ""}
+                        {f"<strong>SD Version:</strong> {metadata.get('sd version', '')}" if metadata.get('sd version') else ""}
+                    </div>
+                </div>
+                ''' if has_metadata and metadata else ''}
+                
+            </div>
+            """
+            
+            lora_items.append(lora_item)
+        
+        # Combine all items
+        results_html = f"""
+        <div style='max-height: 800px; overflow-y: auto; padding: 10px; background: #0d1117; border-radius: 8px;'>
+            <div style='margin-bottom: 15px; padding: 10px; background: #1c2938; border-radius: 6px; 
+                       text-align: center; color: #fff; border: 1px solid #444;'>
+                <strong>Database Results:</strong> {len(loras)} Loras found
+                {f"<br><small style='color: #ccc;'>{query_info}</small>" if query_info else ""}
+            </div>
+            {''.join(lora_items)}
+        </div>
+        """
+        
+        return results_html
 
     def refresh_lora_list_on_load(self, lora_component):
         """Refresh LORA list when component loads"""
@@ -1384,227 +1831,62 @@ script_instance = None
 
 def _create_main_controls_tab():
     """Create the main controls tab UI components"""
-    with gr.TabItem("Main Controls"):
-        # API Status (key now in settings)
-        with gr.Row():
-            test_api_btn = gr.Button("Test API", variant="secondary", size="sm", scale=1)
-            api_status = gr.HTML("API key configured in Settings → Civitai Randomizer", scale=4)
-        
-        # Main Controls
-        with gr.Row():
-            enable_randomizer = gr.Checkbox(
-                label="Enable Civitai Randomizer",
-                value=False,
-                info="Automatically fetch new prompts for each generation"
-            )
-            bypass_prompts = gr.Checkbox(
-                label="Bypass Prompt Fetching",
-                value=False,
-                info="Use only custom prompts and LORA randomization"
-            )
-        
-        # Filtering Controls
-        with gr.Row():
-            nsfw_filter = gr.Dropdown(
-                label="NSFW Content Filter",
-                choices=["Include All", "Exclude NSFW", "Only NSFW"],
-                value="Include All",
-                info="Filter content based on NSFW classification"
-            )
-            
-        # Prompt Filtering
-        with gr.Row():
-            keyword_filter = gr.Textbox(
-                label="Keyword Filter",
-                placeholder="woman, portrait, anime, landscape",
-                info="Comma-separated keywords (OR logic): only fetch prompts containing at least one of these words"
-            )
-            sort_method = gr.Dropdown(
-                label="Sort Method",
-                choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
-                value="Most Reactions"
-            )
-        
-        # Cache Management
-        with gr.Row():
-            clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm", scale=1)
-            cache_status = gr.HTML("Cached prompts: 0", scale=4)
-        
-        # Custom Prompt Management
-        with gr.Accordion("Custom Prompt Settings", open=False):
-            with gr.Row():
-                custom_prompt_start = gr.Textbox(
-                    label="Custom Prompt (Beginning)",
-                    placeholder="Text to add at the beginning of each prompt",
-                    lines=2
-                )
-            with gr.Row():
-                custom_prompt_end = gr.Textbox(
-                    label="Custom Prompt (End)",
-                    placeholder="Text to add at the end of each prompt",
-                    lines=2
-                )
-        
-        # LORA Management
-        with gr.Accordion("LORA Management", open=False):
-            with gr.Row():
-                enable_lora_randomizer = gr.Checkbox(
-                    label="Enable LORA Randomizer",
-                    value=False,
-                    info="Randomly select and apply LORAs"
-                )
-                refresh_loras_btn = gr.Button("Refresh LORA List", variant="secondary", size="sm")
-            
-            lora_selection = gr.CheckboxGroup(
-                label="Available LORAs",
-                choices=[],
-                value=[],
-                info="Select LORAs to include in randomization"
-            )
-            
-            with gr.Row():
-                lora_strength_min = gr.Slider(
-                    label="Min LORA Strength",
-                    minimum=0.1,
-                    maximum=2.0,
-                    value=0.5,
-                    step=0.1
-                )
-                lora_strength_max = gr.Slider(
-                    label="Max LORA Strength",
-                    minimum=0.1,
-                    maximum=2.0,
-                    value=1.0,
-                    step=0.1
-                )
-            
-            max_loras_per_gen = gr.Slider(
-                label="Max LORAs per Generation",
-                minimum=1,
-                maximum=5,
-                value=2,
-                step=1,
-                info="Maximum number of LORAs to apply randomly"
-            )
-        
-        # Lora Availability Checking
-        with gr.Accordion("Lora Availability Checker", open=False):
-            gr.HTML("<p><strong>Check which Loras from Civitai prompts are available locally</strong></p>")
-            gr.HTML("<p><small>Configure your Lora directory path in <strong>Settings → Civitai Randomizer</strong></small></p>")
-            
-            with gr.Row():
-                scan_loras_btn = gr.Button("🔍 Scan Local Loras", variant="primary", size="sm")
-                lora_scan_status = gr.HTML("Lora cache: Not scanned yet")
-            
-            with gr.Row():
-                force_rescan_btn = gr.Button("🔄 Force Rescan", variant="secondary", size="sm")
-                clear_lora_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm")
-            
-            lora_scan_info = gr.HTML("""
-            <div style='background: #1a1a1a; padding: 10px; border-radius: 4px; margin-top: 10px; font-size: 12px; color: #ccc;'>
-                <strong>How it works:</strong><br>
-                • Scans your local Lora directory for .safetensors, .pt, and .ckpt files<br>
-                • Calculates SHA256 hashes for exact matching with Civitai Loras<br>
-                • Reads .json metadata files (compatible with sd-civitai-browser-plus)<br>
-                • Shows availability status in the Prompt Queue<br>
-                • Cache expires after 5 minutes to detect new files
-            </div>
-            """)
-        
-        # Main Action Buttons
-        with gr.Accordion("Prompt Population Controls", open=True):
-            with gr.Row():
-                fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg", scale=1)
-                populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg", scale=1)
-                generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg", scale=1)
-            
-            prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
-            
-            # Hidden textboxes to store current prompts for JavaScript access - this is the "bridge"
-            hidden_positive_prompt = gr.Textbox(
-                value="No prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
-                visible=False, 
-                elem_id="civitai_hidden_positive"
-            )
-            hidden_negative_prompt = gr.Textbox(
-                value="No negative prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
-                visible=False,
-                elem_id="civitai_hidden_negative"
-            )
-            
-            with gr.Row():
-                custom_negative_prompt = gr.Textbox(
-                    label="Custom Negative Prompt",
-                    placeholder="Text to add to negative prompts (optional)",
-                    lines=2,
-                    info="This will be combined with Civitai negative prompts"
-                )
-    
-    # Return all the UI components that need to be referenced later
-    return {
-        'test_api_btn': test_api_btn,
-        'api_status': api_status,
-        'enable_randomizer': enable_randomizer,
-        'bypass_prompts': bypass_prompts,
-        'nsfw_filter': nsfw_filter,
-        'keyword_filter': keyword_filter,
-        'sort_method': sort_method,
-        'clear_cache_btn': clear_cache_btn,
-        'cache_status': cache_status,
-        'custom_prompt_start': custom_prompt_start,
-        'custom_prompt_end': custom_prompt_end,
-        'enable_lora_randomizer': enable_lora_randomizer,
-        'refresh_loras_btn': refresh_loras_btn,
-        'lora_selection': lora_selection,
-        'lora_strength_min': lora_strength_min,
-        'lora_strength_max': lora_strength_max,
-        'max_loras_per_gen': max_loras_per_gen,
-        'scan_loras_btn': scan_loras_btn,
-        'lora_scan_status': lora_scan_status,
-        'force_rescan_btn': force_rescan_btn,
-        'clear_lora_cache_btn': clear_lora_cache_btn,
-        'fetch_prompts_btn': fetch_prompts_btn,
-        'populate_btn': populate_btn,
-        'generate_forever_btn': generate_forever_btn,
-        'prompt_queue_status': prompt_queue_status,
-        'hidden_positive_prompt': hidden_positive_prompt,
-        'hidden_negative_prompt': hidden_negative_prompt,
-        'custom_negative_prompt': custom_negative_prompt
-    }
+    # Implementation placeholder - this would contain the full main controls tab
+    pass
 
 def _create_queue_tab():
-    """Create the prompt queue tab UI components"""
-    with gr.TabItem("Prompt Queue"):
-        gr.HTML("<h3>📋 Prompt Queue Management</h3>")
-        gr.HTML("<p>View and manage your fetched prompts queue. Click on images to view full size.</p>")
+    """Create the queue tab UI components"""
+    # Implementation placeholder - this would contain the full queue tab
+    pass
+
+def _create_lora_management_tab():
+    """Create the Lora management tab UI components"""
+    with gr.TabItem("Lora Database"):
+        gr.HTML("<h3>📊 Local Lora Database Management</h3>")
+        gr.HTML("<p>Manage and browse your local Lora collection with persistent SQLite storage.</p>")
         
-        # Queue status and info
+        # Database status and controls
         with gr.Row():
-            queue_info = gr.HTML("Queue: 0 prompts available")
-            refresh_queue_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm", scale=1)
+            db_stats = gr.HTML("Database: Not loaded")
+            refresh_stats_btn = gr.Button("🔄 Refresh Stats", variant="secondary", size="sm")
         
-        # Queue management controls
         with gr.Row():
-            fetch_more_btn = gr.Button("🔄 Fetch More Prompts", variant="primary", size="sm")
-            clear_queue_btn = gr.Button("🗑️ Clear Queue", variant="secondary", size="sm")
-            reset_index_btn = gr.Button("⏪ Reset to Start", variant="secondary", size="sm")
+            scan_db_btn = gr.Button("🔍 Scan Loras", variant="primary")
+            force_scan_btn = gr.Button("🔄 Force Rescan", variant="secondary")
+            clear_db_btn = gr.Button("🗑️ Clear Database", variant="stop")
+            vacuum_db_btn = gr.Button("⚡ Optimize DB", variant="secondary")
         
-        # Main queue display
-        queue_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #666;'>No prompts loaded. Use the Main Controls tab to fetch prompts.</div>")
+        # Search and filter controls
+        gr.HTML("<h4>🔎 Search & Filter</h4>")
+        with gr.Row():
+            search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
+            search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
+            search_btn = gr.Button("🔍 Search", variant="primary", scale=1)
         
-        # Additional info
-        gr.HTML("<small><strong>Tips:</strong> Images are displayed at medium size for easy viewing. " +
-               "Click any image to open the full-size version in a new tab. " +
-               "Used prompts are grayed out, pending prompts are highlighted in blue.</small>")
+        with gr.Row():
+            filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
+            filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
+            show_all_btn = gr.Button("📋 Show All", variant="secondary")
+        
+        # Results display
+        results_info = gr.HTML("Results: No search performed")
+        lora_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #888;'>No results to display</div>")
     
-    # Return the UI components that need to be referenced later
     return {
-        'queue_info': queue_info,
-        'refresh_queue_btn': refresh_queue_btn,
-        'fetch_more_btn': fetch_more_btn,
-        'clear_queue_btn': clear_queue_btn,
-        'reset_index_btn': reset_index_btn,
-        'queue_display': queue_display
+        'db_stats': db_stats,
+        'refresh_stats_btn': refresh_stats_btn,
+        'scan_db_btn': scan_db_btn,
+        'force_scan_btn': force_scan_btn,
+        'clear_db_btn': clear_db_btn,
+        'vacuum_db_btn': vacuum_db_btn,
+        'search_name': search_name,
+        'search_hash': search_hash,
+        'search_btn': search_btn,
+        'filter_has_metadata': filter_has_metadata,
+        'filter_has_hash': filter_has_hash,
+        'show_all_btn': show_all_btn,
+        'results_info': results_info,
+        'lora_display': lora_display
     }
 
 def _create_event_handlers():
@@ -1623,239 +1905,108 @@ def _create_event_handlers():
     def scan_local_loras():
         """Scan local Loras and return status"""
         try:
-            lora_cache = script_instance.scan_local_loras(force_refresh=False)
-            status_msg = f"Lora cache: {len(lora_cache)} files scanned"
+            script_instance.scan_local_loras(force_refresh=False)
+            count = script_instance.get_lora_count()
+            status_msg = f"Lora database: {count} files scanned"
             return status_msg
         except Exception as e:
-            return f"Lora cache: Error - {str(e)}"
+            return f"Lora database: Error - {str(e)}"
     
     def force_rescan_loras():
         """Force rescan of local Loras"""
         try:
-            lora_cache = script_instance.scan_local_loras(force_refresh=True)
-            status_msg = f"Lora cache: {len(lora_cache)} files rescanned (forced)"
+            script_instance.scan_local_loras(force_refresh=True)
+            count = script_instance.get_lora_count()
+            status_msg = f"Lora database: {count} files rescanned (forced)"
             return status_msg
         except Exception as e:
-            return f"Lora cache: Error - {str(e)}"
+            return f"Lora database: Error - {str(e)}"
     
     def clear_lora_cache():
-        """Clear the Lora cache"""
-        script_instance.local_loras_cache = {}
-        script_instance.lora_cache_timestamp = 0
-        return "Lora cache: Cleared"
-    
-    def clear_prompt_cache():
-        script_instance.cached_prompts = []
-        script_instance.prompt_queue = []
-        script_instance.queue_index = 0
-        return "Cached prompts: 0", "Prompt queue: 0 prompts available"
-    
-    def clear_and_update_queue():
-        """Clear cache and update both main tab and queue tab"""
-        cache_status, queue_status = clear_prompt_cache()
-        # Get empty queue display
-        queue_info, queue_display = refresh_queue_display()
-        return cache_status, queue_status, queue_info, queue_display
-    
-    def reset_queue_index():
-        """Reset the queue index to the beginning"""
-        script_instance.queue_index = 0
-        queue_info, queue_display = refresh_queue_display()
-        remaining = len(script_instance.prompt_queue) - script_instance.queue_index
-        status_msg = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
-        return status_msg, queue_info, queue_display
-    
-    def fetch_more_from_queue():
-        """Fetch more prompts using cursor-based pagination"""
-        import modules.shared as shared
-        api_key = getattr(shared.opts, 'civitai_api_key', '')
-        script_instance.api_key = api_key
-        
-        # Check if we have a next page URL available
-        if not script_instance.last_next_page_url:
-            print("[Fetch More] No more pages available from Civitai API")
-            status_html = f"❌ No more pages available"
-            queue_html = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
-            queue_info, queue_display = refresh_queue_display()
-            
-            # Get current prompts for hidden textboxes
-            current_pos = ""
-            current_neg = ""
-            if script_instance.prompt_queue:
-                first_pair = script_instance.prompt_queue[0] if len(script_instance.prompt_queue) > 0 else None
-                if first_pair:
-                    current_pos = first_pair['positive']
-                    current_neg = first_pair['negative']
-            
-            return status_html, queue_html, current_pos, current_neg, queue_info, queue_display
-        
-        # Use cursor-based pagination instead of incrementing page numbers
-        print(f"[Fetch More] Using cursor-based pagination with nextPage URL")
-        print(f"[Fetch More] Using last settings: NSFW={script_instance.last_nsfw_filter}, keyword='{script_instance.last_keyword_filter}', sort={script_instance.last_sort_method}")
-        
-        prompts = script_instance.fetch_civitai_prompts(
-            script_instance.last_nsfw_filter, 
-            script_instance.last_keyword_filter, 
-            script_instance.last_sort_method,
-            limit=100,
-            is_fetch_more=True  # This tells the method to use cursor pagination
-        )
-        
-        # Update all displays
-        status_html = f"Cached prompts: {len(script_instance.cached_prompts)}"
-        queue_html = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
-        queue_info, queue_display = refresh_queue_display()
-        
-        # Get current prompts for hidden textboxes
-        current_pos = ""
-        current_neg = ""
-        if script_instance.prompt_queue:
-            first_pair = script_instance.prompt_queue[0] if len(script_instance.prompt_queue) > 0 else None
-            if first_pair:
-                current_pos = first_pair['positive']
-                current_neg = first_pair['negative']
-        
-        return status_html, queue_html, current_pos, current_neg, queue_info, queue_display
-    
-    def fetch_new_prompts(nsfw_filter, keyword_filter, sort_method):
-        import modules.shared as shared
-        api_key = getattr(shared.opts, 'civitai_api_key', '')
-        script_instance.api_key = api_key
-        
-        # Reset cursor-based pagination when fetching new prompts
-        script_instance.last_next_page_url = None
-        prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method, limit=100, is_fetch_more=False)
-        
-        status_html = f"Cached prompts: {len(script_instance.cached_prompts)}"
-        queue_html = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
-        
-        # Get current prompts for hidden textboxes (the bridge)
-        current_pos = ""
-        current_neg = ""
-        if script_instance.prompt_queue:
-            first_pair = script_instance.prompt_queue[0] if len(script_instance.prompt_queue) > 0 else None
-            if first_pair:
-                current_pos = first_pair['positive']
-                current_neg = first_pair['negative']
-                print(f"[Civitai Randomizer] 🔗 Updating bridge textboxes - Positive: '{current_pos[:100]}...' Negative: '{current_neg[:50]}...'")
-        
-        return status_html, queue_html, current_pos, current_neg
-    
-    def fetch_and_update_queue(nsfw_filter, keyword_filter, sort_method):
-        """Fetch prompts and return data for both main tab and queue tab"""
-        # First fetch the prompts
-        status_html, queue_html, current_pos, current_neg = fetch_new_prompts(nsfw_filter, keyword_filter, sort_method)
-        
-        # Then get the queue display
-        queue_status, queue_display = refresh_queue_display()
-        
-        return status_html, queue_html, current_pos, current_neg, queue_status, queue_display
-    
-    def get_prompts_for_js(custom_start, custom_end, custom_negative):
-        """Generate prompts and return them for JavaScript to populate"""
-        print(f"[Civitai Randomizer] ===== JS FUNCTION CALLED =====")
-        print(f"[Civitai Randomizer] Queue length: {len(script_instance.prompt_queue)}")
-        print(f"[Civitai Randomizer] Queue index: {script_instance.queue_index}")
-        print(f"[Civitai Randomizer] Custom inputs: start='{custom_start}', end='{custom_end}', negative='{custom_negative}'")
-        
-        pair = script_instance.get_next_prompt_pair()
-        print(f"[Civitai Randomizer] Got pair: {pair is not None}")
-        
-        if pair:
-            positive, negative = script_instance.combine_prompt_pair(
-                pair, custom_start, custom_end, custom_negative
-            )
-            print(f"[Civitai Randomizer] Generated prompts for JavaScript population:")
-            print(f"  Positive ({len(positive)} chars): {positive[:100]}...")
-            print(f"  Negative ({len(negative)} chars): {negative[:100]}...")
-            
-            remaining = len(script_instance.prompt_queue) - script_instance.queue_index
-            status_msg = f"✅ Populated main prompt fields! Queue: {remaining} remaining"
-            
-            print(f"[Civitai Randomizer] Returning: status='{status_msg}', pos_len={len(positive)}, neg_len={len(negative)}")
-            # Return status, bridge textbox values, and the actual prompts for JavaScript to use
-            return status_msg, positive, negative
+        """Clear the Lora database"""
+        if script_instance.clear_database():
+            return "Lora database: Cleared successfully"
         else:
-            print(f"[Civitai Randomizer] No prompts available in queue - need to fetch prompts first!")
-            return "❌ No prompts available - fetch some prompts first!", "", ""
+            return "Lora database: Error clearing database"
     
-    def get_prompts_and_update_queue(custom_start, custom_end, custom_negative):
-        """Generate prompts and also update the queue display"""
-        # Get the prompts first
-        status_msg, positive, negative = get_prompts_for_js(custom_start, custom_end, custom_negative)
-        
-        # Update queue display
-        queue_info, queue_display = refresh_queue_display()
-        
-        return status_msg, positive, negative, queue_info, queue_display
+    def vacuum_database():
+        """Vacuum the database for optimization"""
+        if script_instance.vacuum_database():
+            return "Database vacuumed successfully"
+        else:
+            return "Error vacuuming database"
     
-    def refresh_queue_display():
-        """Refresh the queue display using class methods"""
-        total_prompts = len(script_instance.prompt_queue)
-        current_index = script_instance.queue_index
-        remaining = max(0, total_prompts - current_index)
+    def get_database_stats():
+        """Get and format database statistics"""
+        stats = script_instance.get_database_stats()
         
-        queue_status = f"Queue: {remaining}/{total_prompts} prompts available (Index: {current_index})"
+        if not stats:
+            return "No statistics available"
         
-        if not script_instance.prompt_queue:
-            queue_display_content = """
-            <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px; border: 1px solid #444;'>
-                <h3>📋 No prompts in queue</h3>
-                <p>Click "Fetch New Prompts" to load prompts from Civitai</p>
+        try:
+            total_loras = stats.get('total_loras', 0)
+            with_hash = stats.get('with_hash', 0)
+            with_metadata = stats.get('with_metadata', 0)
+            total_size = stats.get('total_size', 0)
+            last_scan = stats.get('last_scan')
+            
+            # Format file size
+            if total_size > 1024**3:
+                size_str = f"{total_size / (1024**3):.1f} GB"
+            elif total_size > 1024**2:
+                size_str = f"{total_size / (1024**2):.1f} MB"
+            else:
+                size_str = f"{total_size / 1024:.1f} KB"
+            
+            # Format last scan
+            scan_info = "Never"
+            if last_scan:
+                try:
+                    import datetime
+                    scan_time = datetime.datetime.fromtimestamp(last_scan['scan_date'])
+                    scan_info = f"{scan_time.strftime('%Y-%m-%d %H:%M')} ({last_scan.get('scan_type', 'unknown')})"
+                except:
+                    scan_info = "Error parsing date"
+            
+            stats_html = f"""
+            <div style='background: #1a1a1a; padding: 15px; border-radius: 8px; font-size: 13px; color: #ccc;'>
+                <h4 style='color: #fff; margin-top: 0;'>📊 Database Statistics</h4>
+                <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>
+                    <div>
+                        <strong>Total Loras:</strong> {total_loras}<br>
+                        <strong>With Hashes:</strong> {with_hash}<br>
+                        <strong>With Metadata:</strong> {with_metadata}
+                    </div>
+                    <div>
+                        <strong>Total Size:</strong> {size_str}<br>
+                        <strong>Last Scan:</strong> {scan_info}
+                    </div>
+                </div>
             </div>
             """
-            return queue_status, queue_display_content
-        
-        # Generate queue display HTML using class methods
-        queue_items = []
-        
-        for i, prompt_data in enumerate(script_instance.prompt_queue):
-            # Use class methods for processing
-            image_html = script_instance.generate_image_html(prompt_data)
-            basic_image_info = script_instance.format_prompt_metadata(prompt_data)
-            image_metadata, content_info, core_params, advanced_params, hires_params, extra_params, lora_info = script_instance.extract_generation_parameters(prompt_data)
-            indicators = script_instance.format_nsfw_indicators(prompt_data)
+            return stats_html
             
-            # Process prompts for display
-            positive_text = prompt_data.get('positive', '')
-            negative_text = prompt_data.get('negative', '')
-            
-            # Debug: Print actual values
-            print(f"[Queue Display] Prompt #{i+1}: positive='{positive_text[:50]}...', negative='{negative_text[:30]}...'")
-            
-            # Truncate prompts for display and escape HTML
-            import html
-            if positive_text:
-                positive_truncated = positive_text[:200] + "..." if len(positive_text) > 200 else positive_text
-                positive_preview = html.escape(positive_truncated)
-            else:
-                positive_preview = "<em>No positive prompt found</em>"
-                
-            if negative_text:
-                negative_truncated = negative_text[:150] + "..." if len(negative_text) > 150 else negative_text
-                negative_preview = html.escape(negative_truncated)
-            else:
-                negative_preview = "<em>No negative prompt</em>"
-            
-            # Format HTML for a single queue item using class method
-            queue_item = script_instance.format_queue_item_html(i, prompt_data, current_index, image_html, basic_image_info, 
-                                                               image_metadata, content_info, core_params, advanced_params, 
-                                                               hires_params, extra_params, lora_info, indicators, positive_preview, 
-                                                               negative_preview, negative_text)
-            
-            queue_items.append(queue_item)
-        
-        queue_display_content = f"""
-        <div style='max-height: 800px; overflow-y: auto; padding: 10px; background: #0d1117; border-radius: 8px;'>
-            <div style='margin-bottom: 15px; padding: 10px; background: #1c2938; border-radius: 6px; text-align: center; color: #fff; border: 1px solid #444;'>
-                <strong>Queue Status:</strong> {remaining} remaining out of {total_prompts} total prompts
-                <br><small style='color: #ccc;'>Click on any image to view full size</small>
-            </div>
-            {''.join(queue_items)}
-        </div>
-        """
-        
-        return queue_status, queue_display_content
+        except Exception as e:
+            return f"Error formatting statistics: {e}"
+    
+    def search_loras():
+        """Search Loras in database"""
+        try:
+            # For now, just show all Loras
+            results = script_instance.search_loras_db(limit=100)
+            results_html = script_instance.format_lora_database_display(results, "Showing recent Loras")
+            return results_html
+        except Exception as e:
+            return f"<div style='color: #ff6b6b;'>Search error: {str(e)}</div>"
+    
+    def show_all_loras():
+        """Show all Loras in database"""
+        try:
+            results = script_instance.search_loras_db(limit=200)
+            results_html = script_instance.format_lora_database_display(results, "Showing all Loras (limited to 200)")
+            return results_html
+        except Exception as e:
+            return f"<div style='color: #ff6b6b;'>Error loading Loras: {str(e)}</div>"
     
     # Return all handlers as a dictionary
     return {
@@ -1864,15 +2015,10 @@ def _create_event_handlers():
         'scan_local_loras': scan_local_loras,
         'force_rescan_loras': force_rescan_loras,
         'clear_lora_cache': clear_lora_cache,
-        'clear_prompt_cache': clear_prompt_cache,
-        'clear_and_update_queue': clear_and_update_queue,
-        'reset_queue_index': reset_queue_index,
-        'fetch_more_from_queue': fetch_more_from_queue,
-        'fetch_new_prompts': fetch_new_prompts,
-        'fetch_and_update_queue': fetch_and_update_queue,
-        'get_prompts_for_js': get_prompts_for_js,
-        'get_prompts_and_update_queue': get_prompts_and_update_queue,
-        'refresh_queue_display': refresh_queue_display
+        'vacuum_database': vacuum_database,
+        'get_database_stats': get_database_stats,
+        'search_loras': search_loras,
+        'show_all_loras': show_all_loras
     }
 
 def on_ui_tabs():
@@ -1889,134 +2035,48 @@ def on_ui_tabs():
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
         with gr.Tabs():
-            main_controls_tab = _create_main_controls_tab()
-            queue_tab = _create_queue_tab()
+            # For now, just create a simple Lora Database tab
+            lora_management_tab = _create_lora_management_tab()
         
         # Event handlers
         event_handlers = _create_event_handlers()
         
-        # Bind events
-        main_controls_tab['test_api_btn'].click(
-            event_handlers['test_api_connection'],
-            outputs=[main_controls_tab['api_status']]
+        # Bind Lora management tab events
+        lora_management_tab['refresh_stats_btn'].click(
+            event_handlers['get_database_stats'],
+            outputs=[lora_management_tab['db_stats']]
         )
         
-        main_controls_tab['refresh_loras_btn'].click(
-            event_handlers['refresh_lora_list'],
-            outputs=[main_controls_tab['lora_selection']]
-        )
-        
-        # Lora availability event handlers
-        main_controls_tab['scan_loras_btn'].click(
+        lora_management_tab['scan_db_btn'].click(
             event_handlers['scan_local_loras'],
-            outputs=[main_controls_tab['lora_scan_status']]
+            outputs=[lora_management_tab['results_info']]
         )
         
-        main_controls_tab['force_rescan_btn'].click(
+        lora_management_tab['force_scan_btn'].click(
             event_handlers['force_rescan_loras'],
-            outputs=[main_controls_tab['lora_scan_status']]
+            outputs=[lora_management_tab['results_info']]
         )
         
-        main_controls_tab['clear_lora_cache_btn'].click(
+        lora_management_tab['clear_db_btn'].click(
             event_handlers['clear_lora_cache'],
-            outputs=[main_controls_tab['lora_scan_status']]
+            outputs=[lora_management_tab['results_info']]
         )
         
-        main_controls_tab['clear_cache_btn'].click(
-            event_handlers['clear_prompt_cache'],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status']]
+        lora_management_tab['vacuum_db_btn'].click(
+            event_handlers['vacuum_database'],
+            outputs=[lora_management_tab['results_info']]
         )
         
-        main_controls_tab['fetch_prompts_btn'].click(
-            event_handlers['fetch_new_prompts'],
-            inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt']]
+        lora_management_tab['search_btn'].click(
+            event_handlers['search_loras'],
+            outputs=[lora_management_tab['lora_display']]
         )
         
-        # Bind the populate button to update bridge textboxes and use JavaScript to populate main fields
-        main_controls_tab['populate_btn'].click(
-            event_handlers['get_prompts_and_update_queue'],
-            inputs=[main_controls_tab['custom_prompt_start'], main_controls_tab['custom_prompt_end'], main_controls_tab['custom_negative_prompt']],
-            outputs=[main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']],
-            _js="""
-            function(custom_start, custom_end, custom_negative) {
-                console.log('[Civitai Randomizer] Populate button clicked with JS!');
-                console.log('[Civitai Randomizer] Custom inputs:', {custom_start, custom_end, custom_negative});
-                
-                // Give Python time to update the hidden textboxes
-                setTimeout(() => {
-                    // Read from hidden textboxes (the bridge)
-                    const hiddenPositive = document.querySelector('#civitai_hidden_positive textarea');
-                    const hiddenNegative = document.querySelector('#civitai_hidden_negative textarea');
-                    
-                    let positive_prompt = "Bridge not working!";
-                    let negative_prompt = "Bridge not working!";
-                    
-                    if (hiddenPositive) {
-                        positive_prompt = hiddenPositive.value;
-                        console.log('[Civitai Randomizer] Read from bridge - Positive:', positive_prompt.substring(0, 100) + '...');
-                    }
-                    if (hiddenNegative) {
-                        negative_prompt = hiddenNegative.value;
-                        console.log('[Civitai Randomizer] Read from bridge - Negative:', negative_prompt.substring(0, 50) + '...');
-                    }
-                    
-                    // Now populate main fields using the proven working approach
-                    let positiveField = document.querySelector('#txt2img_prompt textarea');
-                    let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
-                    
-                    if (!positiveField) {
-                        positiveField = document.querySelector('#img2img_prompt textarea');
-                    }
-                    if (!negativeField) {
-                        negativeField = document.querySelector('#img2img_neg_prompt textarea');
-                    }
-                    
-                    if (positiveField && negativeField) {
-                        positiveField.value = positive_prompt;
-                        negativeField.value = negative_prompt;
-                        
-                        ['input', 'change'].forEach(eventType => {
-                            positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
-                            negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
-                        });
-                        
-                        console.log('[Civitai Randomizer] ✅ Main fields populated via bridge!');
-                    } else {
-                        console.log('[Civitai Randomizer] ❌ Could not find main prompt fields');
-                    }
-                }, 500);
-                
-                return [custom_start, custom_end, custom_negative];
-            }
-            """
+        lora_management_tab['show_all_btn'].click(
+            event_handlers['show_all_loras'],
+            outputs=[lora_management_tab['lora_display']]
         )
-        
-        # Bind queue refresh button
-        queue_tab['refresh_queue_btn'].click(
-            event_handlers['refresh_queue_display'],
-            outputs=[queue_tab['queue_info'], queue_tab['queue_display']]
-        )
-        
-        # Bind queue management buttons
-        queue_tab['clear_queue_btn'].click(
-            event_handlers['clear_and_update_queue'],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
-        )
-        
-        queue_tab['reset_index_btn'].click(
-            event_handlers['reset_queue_index'],
-            outputs=[main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
-        )
-        
-        queue_tab['fetch_more_btn'].click(
-            event_handlers['fetch_more_from_queue'],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']]
-        )
-        
-        # Initialize LORA list on load
-        loras = script_instance.get_available_loras()
-        main_controls_tab['lora_selection'].choices = loras
+
         
         print(f"[Civitai Randomizer] ✅ Tab interface with subtabs created successfully")
     
