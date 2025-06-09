@@ -744,7 +744,10 @@ class CivitaiRandomizerScript(scripts.Script):
                     if is_nsfw:
                         nsfw_count += 1
                     
-                    # Create prompt pair
+                    # Extract all available image information
+                    stats = item.get('stats', {})
+                    
+                    # Create comprehensive prompt pair with all available info
                     prompt_pair = {
                         'positive': self.clean_prompt(positive_prompt),
                         'negative': self.clean_prompt(negative_prompt) if negative_prompt else '',
@@ -752,7 +755,36 @@ class CivitaiRandomizerScript(scripts.Script):
                         'image_width': item.get('width', 0),
                         'image_height': item.get('height', 0),
                         'nsfw': is_nsfw,
-                        'nsfw_level': nsfw_level
+                        'nsfw_level': nsfw_level,
+                        # Additional image metadata
+                        'id': item.get('id', ''),
+                        'hash': item.get('hash', ''),  # blurhash
+                        'created_at': item.get('createdAt', ''),
+                        'post_id': item.get('postId', ''),
+                        'username': item.get('username', ''),
+                        'base_model': item.get('baseModel', ''),
+                        # Stats
+                        'likes': stats.get('likeCount', 0),
+                        'dislikes': stats.get('dislikeCount', 0), 
+                        'laughs': stats.get('laughCount', 0),
+                        'cries': stats.get('cryCount', 0),
+                        'hearts': stats.get('heartCount', 0),
+                        'comments': stats.get('commentCount', 0),
+                        # Meta information (generation parameters)
+                        'meta': meta,  # Store full meta for detailed display
+                        'steps': meta.get('steps', ''),
+                        'sampler': meta.get('sampler', ''),
+                        'cfg_scale': meta.get('cfgScale', ''),
+                        'seed': meta.get('seed', ''),
+                        'model_name': meta.get('Model', ''),
+                        'clip_skip': meta.get('clipSkip', ''),
+                        'size': meta.get('Size', ''),
+                        'model_hash': meta.get('Model hash', ''),
+                        'vae': meta.get('VAE', ''),
+                        'denoising_strength': meta.get('Denoising strength', ''),
+                        'hires_upscaler': meta.get('Hires upscaler', ''),
+                        'hires_steps': meta.get('Hires steps', ''),
+                        'hires_upscale': meta.get('Hires upscale', ''),
                     }
                     
                     # Add to both new queue and legacy list
@@ -1287,33 +1319,132 @@ def on_ui_tabs():
                     </div>
                     """
                 
-                # NSFW indicator
-                nsfw_indicator = ""
+                # Build comprehensive metadata display
+                image_info = []
+                if prompt_data.get('image_width') and prompt_data.get('image_height'):
+                    image_info.append(f"{prompt_data.get('image_width', 0)} × {prompt_data.get('image_height', 0)}px")
+                if prompt_data.get('id'):
+                    image_info.append(f"ID: {prompt_data.get('id')}")
+                if prompt_data.get('username'):
+                    image_info.append(f"👤 {prompt_data.get('username')}")
+                if prompt_data.get('created_at'):
+                    # Format date nicely
+                    import datetime
+                    try:
+                        dt = datetime.datetime.fromisoformat(prompt_data.get('created_at').replace('Z', '+00:00'))
+                        formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+                        image_info.append(f"📅 {formatted_date}")
+                    except:
+                        image_info.append(f"📅 {prompt_data.get('created_at')}")
+                
+                # NSFW and ratings indicators
+                indicators = []
                 if prompt_data.get('nsfw', False):
-                    nsfw_indicator = "<span style='background: #ff6b6b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px;'>NSFW</span>"
+                    nsfw_level = prompt_data.get('nsfw_level', 'Unknown')
+                    indicators.append(f"<span style='background: #ff6b6b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px;'>NSFW ({nsfw_level})</span>")
+                
+                # Reaction stats
+                reactions = []
+                if prompt_data.get('likes', 0) > 0:
+                    reactions.append(f"👍 {prompt_data.get('likes')}")
+                if prompt_data.get('hearts', 0) > 0:
+                    reactions.append(f"❤️ {prompt_data.get('hearts')}")
+                if prompt_data.get('laughs', 0) > 0:
+                    reactions.append(f"😂 {prompt_data.get('laughs')}")
+                if prompt_data.get('comments', 0) > 0:
+                    reactions.append(f"💬 {prompt_data.get('comments')}")
+                
+                if reactions:
+                    indicators.append(f"<span style='color: #ffd700; font-size: 11px;'>{' '.join(reactions)}</span>")
+                
+                # Generation parameters
+                gen_params = []
+                if prompt_data.get('model_name'):
+                    gen_params.append(f"<strong>Model:</strong> {prompt_data.get('model_name')}")
+                if prompt_data.get('base_model'):
+                    gen_params.append(f"<strong>Base:</strong> {prompt_data.get('base_model')}")
+                if prompt_data.get('steps'):
+                    gen_params.append(f"<strong>Steps:</strong> {prompt_data.get('steps')}")
+                if prompt_data.get('sampler'):
+                    gen_params.append(f"<strong>Sampler:</strong> {prompt_data.get('sampler')}")
+                if prompt_data.get('cfg_scale'):
+                    gen_params.append(f"<strong>CFG:</strong> {prompt_data.get('cfg_scale')}")
+                if prompt_data.get('seed'):
+                    gen_params.append(f"<strong>Seed:</strong> {prompt_data.get('seed')}")
+                if prompt_data.get('clip_skip'):
+                    gen_params.append(f"<strong>CLIP Skip:</strong> {prompt_data.get('clip_skip')}")
+                if prompt_data.get('size'):
+                    gen_params.append(f"<strong>Size:</strong> {prompt_data.get('size')}")
+                if prompt_data.get('denoising_strength'):
+                    gen_params.append(f"<strong>Denoising:</strong> {prompt_data.get('denoising_strength')}")
+                if prompt_data.get('hires_upscaler'):
+                    gen_params.append(f"<strong>Hires Upscaler:</strong> {prompt_data.get('hires_upscaler')}")
+                if prompt_data.get('hires_upscale'):
+                    gen_params.append(f"<strong>Hires Scale:</strong> {prompt_data.get('hires_upscale')}")
+                
+                # Other useful meta data
+                other_params = []
+                if prompt_data.get('vae'):
+                    other_params.append(f"<strong>VAE:</strong> {prompt_data.get('vae')}")
+                if prompt_data.get('model_hash'):
+                    other_params.append(f"<strong>Model Hash:</strong> {prompt_data.get('model_hash')[:8]}...")
+                if prompt_data.get('post_id'):
+                    other_params.append(f"<strong>Post ID:</strong> {prompt_data.get('post_id')}")
                 
                 queue_item = f"""
                 <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px; 
                            background: {"#1e3a5f" if i >= current_index else "#2a2a2a"}; color: #fff;'>
-                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
-                        <strong style='color: #fff;'>#{i + 1} - {status_text}</strong>
-                        <span>{status_icon}{nsfw_indicator}</span>
+                    <!-- Header with status and indicators -->
+                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;'>
+                        <strong style='color: #fff; font-size: 14px;'>#{i + 1} - {status_text}</strong>
+                        <div style='display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>
+                            <span style='font-size: 14px;'>{status_icon}</span>
+                            {' '.join(indicators)}
+                        </div>
                     </div>
                     
-                    {image_html}
+                    <!-- Image and basic info side by side -->
+                    <div style='display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;'>
+                        <div style='flex-shrink: 0;'>
+                            {image_html}
+                        </div>
+                        <div style='flex: 1; min-width: 200px;'>
+                            <div style='margin-bottom: 8px; font-size: 12px; color: #bbb; line-height: 1.5;'>
+                                {' | '.join(image_info) if image_info else 'No metadata available'}
+                            </div>
+                            
+                            <!-- Generation Parameters -->
+                            {f'''
+                            <div style='margin-bottom: 12px;'>
+                                <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>⚙️ Generation Parameters:</div>
+                                <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #1f2937; padding: 6px; border-radius: 4px;'>
+                                    {' • '.join(gen_params[:6])}
+                                    {('<br>' + ' • '.join(gen_params[6:])) if len(gen_params) > 6 else ''}
+                                </div>
+                            </div>
+                            ''' if gen_params else ''}
+                            
+                            <!-- Additional Technical Info -->
+                            {f'''
+                            <div style='margin-bottom: 8px;'>
+                                <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔧 Technical Details:</div>
+                                <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #1f2937; padding: 6px; border-radius: 4px;'>
+                                    {' • '.join(other_params)}
+                                </div>
+                            </div>
+                            ''' if other_params else ''}
+                        </div>
+                    </div>
                     
+                    <!-- Prompts Section -->
                     <div style='margin-bottom: 10px;'>
-                        <strong style='color: #4ade80;'>Positive Prompt:</strong><br>
-                        <span style='background: #1a3b1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #e6ffe6; border: 1px solid #2d5a2d;'>{positive_preview}</span>
+                        <strong style='color: #4ade80; font-size: 13px;'>✨ Positive Prompt:</strong><br>
+                        <span style='background: #1a3b1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #e6ffe6; border: 1px solid #2d5a2d; font-size: 12px;'>{positive_preview}</span>
                     </div>
                     
                     <div>
-                        <strong style='color: #ff6b6b;'>Negative Prompt:</strong><br>
-                        <span style='background: #3b1a1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #ffe6e6; border: 1px solid #5a2d2d; font-style: {"italic" if not negative_text else "normal"};'>{negative_preview}</span>
-                    </div>
-                    
-                    <div style='margin-top: 8px; font-size: 12px; color: #aaa;'>
-                        Image: {prompt_data.get('image_width', 0)} × {prompt_data.get('image_height', 0)}px
+                        <strong style='color: #ff6b6b; font-size: 13px;'>🚫 Negative Prompt:</strong><br>
+                        <span style='background: #3b1a1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #ffe6e6; border: 1px solid #5a2d2d; font-style: {"italic" if not negative_text else "normal"}; font-size: 12px;'>{negative_preview}</span>
                     </div>
                 </div>
                 """
