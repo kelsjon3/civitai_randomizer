@@ -16,7 +16,7 @@ class CivitaiRandomizerScript(scripts.Script):
     def __init__(self):
         self.api_key = ""
         self.cached_prompts = []  # Legacy for compatibility
-        self.prompt_queue = []    # New: stores {'positive': str, 'negative': str} pairs
+        self.prompt_queue = []    # New: stores {'positive': str, 'negative': str, 'image_url': str, 'image_width': int, 'image_height': int, 'nsfw': bool} pairs
         self.queue_index = 0
         self.last_api_call = 0
         self.api_cooldown = 5  # seconds between API calls
@@ -714,10 +714,17 @@ class CivitaiRandomizerScript(scripts.Script):
                         if not any(keyword in positive_prompt.lower() for keyword in keywords):
                             continue
                     
+                    # Get image URL from the item itself (not meta)
+                    image_url = item.get('url', '')
+                    
                     # Create prompt pair
                     prompt_pair = {
                         'positive': self.clean_prompt(positive_prompt),
-                        'negative': self.clean_prompt(negative_prompt) if negative_prompt else ''
+                        'negative': self.clean_prompt(negative_prompt) if negative_prompt else '',
+                        'image_url': image_url,
+                        'image_width': item.get('width', 0),
+                        'image_height': item.get('height', 0),
+                        'nsfw': item.get('nsfw', False)
                     }
                     
                     # Add to both new queue and legacy list
@@ -1026,19 +1033,26 @@ def on_ui_tabs():
             
             with gr.TabItem("Prompt Queue"):
                 gr.HTML("<h3>📋 Prompt Queue Management</h3>")
-                gr.HTML("<p>View and manage your fetched prompts queue</p>")
+                gr.HTML("<p>View and manage your fetched prompts queue. Click on images to view full size.</p>")
                 
                 # Queue status and info
                 with gr.Row():
                     queue_info = gr.HTML("Queue: 0 prompts available")
                     refresh_queue_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm", scale=1)
                 
-                # Placeholder for queue display - will add management features next
-                queue_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #666;'>Queue management features coming soon...</div>")
-                
-                # Future queue management buttons placeholder
+                # Queue management controls
                 with gr.Row():
-                    gr.HTML("<small>Queue management controls will be added here</small>")
+                    fetch_more_btn = gr.Button("🔄 Fetch More Prompts", variant="primary", size="sm")
+                    clear_queue_btn = gr.Button("🗑️ Clear Queue", variant="secondary", size="sm")
+                    reset_index_btn = gr.Button("⏪ Reset to Start", variant="secondary", size="sm")
+                
+                # Main queue display
+                queue_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #666;'>No prompts loaded. Use the Main Controls tab to fetch prompts.</div>")
+                
+                # Additional info
+                gr.HTML("<small><strong>Tips:</strong> Images are displayed at medium size for easy viewing. " +
+                       "Click any image to open the full-size version in a new tab. " +
+                       "Used prompts are grayed out, pending prompts are highlighted in blue.</small>")
         
         # Event handlers
         def test_api_connection():
@@ -1056,6 +1070,45 @@ def on_ui_tabs():
             script_instance.prompt_queue = []
             script_instance.queue_index = 0
             return "Cached prompts: 0", "Prompt queue: 0 prompts available"
+        
+        def clear_and_update_queue():
+            """Clear cache and update both main tab and queue tab"""
+            cache_status, queue_status = clear_prompt_cache()
+            # Get empty queue display
+            queue_info, queue_display = refresh_queue_display()
+            return cache_status, queue_status, queue_info, queue_display
+        
+        def reset_queue_index():
+            """Reset the queue index to the beginning"""
+            script_instance.queue_index = 0
+            queue_info, queue_display = refresh_queue_display()
+            remaining = len(script_instance.prompt_queue) - script_instance.queue_index
+            status_msg = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
+            return status_msg, queue_info, queue_display
+        
+        def fetch_more_from_queue():
+            """Fetch more prompts using the same settings"""
+            # Use default settings for now - could be enhanced to remember last settings
+            import modules.shared as shared
+            api_key = getattr(shared.opts, 'civitai_api_key', '')
+            script_instance.api_key = api_key
+            prompts = script_instance.fetch_civitai_prompts("Include All", "", "Most Reactions")
+            
+            # Update all displays
+            status_html = f"Cached prompts: {len(script_instance.cached_prompts)}"
+            queue_html = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
+            queue_info, queue_display = refresh_queue_display()
+            
+            # Get current prompts for hidden textboxes
+            current_pos = ""
+            current_neg = ""
+            if script_instance.prompt_queue:
+                first_pair = script_instance.prompt_queue[0] if len(script_instance.prompt_queue) > 0 else None
+                if first_pair:
+                    current_pos = first_pair['positive']
+                    current_neg = first_pair['negative']
+            
+            return status_html, queue_html, current_pos, current_neg, queue_info, queue_display
         
         def fetch_new_prompts(nsfw_filter, keyword_filter, sort_method):
             import modules.shared as shared
@@ -1077,6 +1130,16 @@ def on_ui_tabs():
                     print(f"[Civitai Randomizer] 🔗 Updating bridge textboxes - Positive: '{current_pos[:100]}...' Negative: '{current_neg[:50]}...'")
             
             return status_html, queue_html, current_pos, current_neg
+        
+        def fetch_and_update_queue(nsfw_filter, keyword_filter, sort_method):
+            """Fetch prompts and return data for both main tab and queue tab"""
+            # First fetch the prompts
+            status_html, queue_html, current_pos, current_neg = fetch_new_prompts(nsfw_filter, keyword_filter, sort_method)
+            
+            # Then get the queue display
+            queue_status, queue_display = refresh_queue_display()
+            
+            return status_html, queue_html, current_pos, current_neg, queue_status, queue_display
         
         def get_prompts_for_js(custom_start, custom_end, custom_negative):
             """Generate prompts and return them for JavaScript to populate"""
@@ -1106,6 +1169,16 @@ def on_ui_tabs():
                 print(f"[Civitai Randomizer] No prompts available in queue - need to fetch prompts first!")
                 return "❌ No prompts available - fetch some prompts first!", "", ""
         
+        def get_prompts_and_update_queue(custom_start, custom_end, custom_negative):
+            """Generate prompts and also update the queue display"""
+            # Get the prompts first
+            status_msg, positive, negative = get_prompts_for_js(custom_start, custom_end, custom_negative)
+            
+            # Update queue display
+            queue_info, queue_display = refresh_queue_display()
+            
+            return status_msg, positive, negative, queue_info, queue_display
+        
         def refresh_queue_display():
             """Refresh the queue display"""
             total_prompts = len(script_instance.prompt_queue)
@@ -1114,15 +1187,102 @@ def on_ui_tabs():
             
             queue_status = f"Queue: {remaining}/{total_prompts} prompts available (Index: {current_index})"
             
-            # For now, just return basic info - will add detailed display later
+            if not script_instance.prompt_queue:
+                queue_display_content = """
+                <div style='padding: 30px; text-align: center; color: #666; background: #f9f9f9; border-radius: 8px; border: 1px solid #ddd;'>
+                    <h3>📋 No prompts in queue</h3>
+                    <p>Click "Fetch New Prompts" to load prompts from Civitai</p>
+                </div>
+                """
+                return queue_status, queue_display_content
+            
+            # Generate queue display HTML
+            queue_items = []
+            
+            for i, prompt_data in enumerate(script_instance.prompt_queue):
+                # Determine status
+                status_icon = "✅" if i < current_index else "⏳"
+                status_text = "Used" if i < current_index else "Pending"
+                
+                # Truncate prompts for display
+                positive_preview = prompt_data['positive'][:200] + "..." if len(prompt_data['positive']) > 200 else prompt_data['positive']
+                negative_preview = prompt_data['negative'][:150] + "..." if len(prompt_data['negative']) > 150 else prompt_data['negative']
+                
+                # Handle missing negative prompt
+                if not negative_preview:
+                    negative_preview = "<em>No negative prompt</em>"
+                
+                # Image display with fallback
+                image_url = prompt_data.get('image_url', '')
+                image_html = ""
+                if image_url:
+                    # Calculate display size (max 300px width while preserving aspect ratio)
+                    img_width = prompt_data.get('image_width', 512)
+                    img_height = prompt_data.get('image_height', 512)
+                    
+                    display_width = min(300, img_width)
+                    display_height = int((display_width / img_width) * img_height) if img_width > 0 else 300
+                    
+                    image_html = f"""
+                    <div style='text-align: center; margin-bottom: 10px;'>
+                        <img src='{image_url}' 
+                             style='max-width: {display_width}px; height: {display_height}px; 
+                                    border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+                                    cursor: pointer; transition: transform 0.2s;'
+                             onclick='window.open("{image_url}", "_blank")'
+                             onmouseover='this.style.transform="scale(1.02)"'
+                             onmouseout='this.style.transform="scale(1)"'
+                             alt='Generated Image'
+                             title='Click to view full size'>
+                    </div>
+                    """
+                else:
+                    image_html = """
+                    <div style='text-align: center; margin-bottom: 10px; padding: 40px; 
+                               background: #f0f0f0; border-radius: 8px; color: #666;'>
+                        <strong>📷</strong><br>No image available
+                    </div>
+                    """
+                
+                # NSFW indicator
+                nsfw_indicator = ""
+                if prompt_data.get('nsfw', False):
+                    nsfw_indicator = "<span style='background: #ff6b6b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px;'>NSFW</span>"
+                
+                queue_item = f"""
+                <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; 
+                           background: {"#f0f8ff" if i >= current_index else "#f8f8f8"};'>
+                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
+                        <strong>#{i + 1} - {status_text}</strong>
+                        <span>{status_icon}{nsfw_indicator}</span>
+                    </div>
+                    
+                    {image_html}
+                    
+                    <div style='margin-bottom: 10px;'>
+                        <strong style='color: #2c5530;'>Positive Prompt:</strong><br>
+                        <span style='background: #e8f5e8; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4;'>{positive_preview}</span>
+                    </div>
+                    
+                    <div>
+                        <strong style='color: #7d2c2c;'>Negative Prompt:</strong><br>
+                        <span style='background: #ffeaea; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; font-style: {"italic" if not prompt_data["negative"] else "normal"};'>{negative_preview}</span>
+                    </div>
+                    
+                    <div style='margin-top: 8px; font-size: 12px; color: #666;'>
+                        Image: {prompt_data.get('image_width', 0)} × {prompt_data.get('image_height', 0)}px
+                    </div>
+                </div>
+                """
+                queue_items.append(queue_item)
+            
             queue_display_content = f"""
-            <div style='padding: 15px; border: 1px solid #ccc; border-radius: 5px; background: #f9f9f9;'>
-                <strong>Queue Status:</strong><br>
-                Total Prompts: {total_prompts}<br>
-                Current Index: {current_index}<br>
-                Remaining: {remaining}<br>
-                <br>
-                <em>Detailed queue management features coming soon...</em>
+            <div style='max-height: 800px; overflow-y: auto; padding: 10px;'>
+                <div style='margin-bottom: 15px; padding: 10px; background: #e3f2fd; border-radius: 6px; text-align: center;'>
+                    <strong>Queue Status:</strong> {remaining} remaining out of {total_prompts} total prompts
+                    <br><small>Click on any image to view full size</small>
+                </div>
+                {''.join(queue_items)}
             </div>
             """
             
@@ -1152,9 +1312,9 @@ def on_ui_tabs():
         
         # Bind the populate button to update bridge textboxes and use JavaScript to populate main fields
         populate_btn.click(
-            get_prompts_for_js,
+            get_prompts_and_update_queue,
             inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-            outputs=[prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt],
+            outputs=[prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt, queue_info, queue_display],
             _js="""
             function(custom_start, custom_end, custom_negative) {
                 console.log('[Civitai Randomizer] Populate button clicked with JS!');
@@ -1213,6 +1373,22 @@ def on_ui_tabs():
         refresh_queue_btn.click(
             refresh_queue_display,
             outputs=[queue_info, queue_display]
+        )
+        
+        # Bind queue management buttons
+        clear_queue_btn.click(
+            clear_and_update_queue,
+            outputs=[cache_status, prompt_queue_status, queue_info, queue_display]
+        )
+        
+        reset_index_btn.click(
+            reset_queue_index,
+            outputs=[prompt_queue_status, queue_info, queue_display]
+        )
+        
+        fetch_more_btn.click(
+            fetch_more_from_queue,
+            outputs=[cache_status, prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt, queue_info, queue_display]
         )
         
         # Initialize LORA list on load
