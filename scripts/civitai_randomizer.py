@@ -627,9 +627,17 @@ class CivitaiRandomizerScript(scripts.Script):
     def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100) -> List[str]:
         """Fetch prompts from Civitai API"""
         try:
+            # Debug: Print API key status
+            print(f"[Civitai API] API key present: {bool(self.api_key)}")
+            if self.api_key:
+                print(f"[Civitai API] API key length: {len(self.api_key)}")
+            
             headers = {}
             if self.api_key:
                 headers['Authorization'] = f'Bearer {self.api_key}'
+                print(f"[Debug] Using API key: {self.api_key[:8]}..." if len(self.api_key) > 8 else f"[Debug] Using API key: {self.api_key}")
+            else:
+                print(f"[Debug] No API key provided - making unauthenticated request")
             
             # Convert filter options to API parameters
             nsfw_param = None
@@ -653,12 +661,22 @@ class CivitaiRandomizerScript(scripts.Script):
             if nsfw_param is not None:
                 params['nsfw'] = nsfw_param
             
+            # Debug: Print request details
+            print(f"[Civitai API] Request URL: https://civitai.com/api/v1/images")
+            print(f"[Civitai API] Request params: {params}")
+            print(f"[Civitai API] Headers present: {list(headers.keys())}")
+            
             response = requests.get(
                 'https://civitai.com/api/v1/images',
                 headers=headers,
                 params=params,
                 timeout=30
             )
+            
+            # Debug: Print response info
+            print(f"[Civitai API] Response status: {response.status_code}")
+            if 'X-RateLimit-Remaining' in response.headers:
+                print(f"[Civitai API] Rate limit remaining: {response.headers['X-RateLimit-Remaining']}")
             
             if response.status_code != 200:
                 print(f"Civitai API error: {response.status_code}")
@@ -690,6 +708,8 @@ class CivitaiRandomizerScript(scripts.Script):
             
             invalid_items = 0
             invalid_meta = 0
+            nsfw_count = 0
+            total_processed = 0
             
             for item in items:
                 # Skip None items
@@ -716,6 +736,13 @@ class CivitaiRandomizerScript(scripts.Script):
                     
                     # Get image URL from the item itself (not meta)
                     image_url = item.get('url', '')
+                    is_nsfw = item.get('nsfw', False)
+                    nsfw_level = item.get('nsfwLevel', 'None')
+                    
+                    # Debug: Count NSFW items
+                    total_processed += 1
+                    if is_nsfw:
+                        nsfw_count += 1
                     
                     # Create prompt pair
                     prompt_pair = {
@@ -724,7 +751,8 @@ class CivitaiRandomizerScript(scripts.Script):
                         'image_url': image_url,
                         'image_width': item.get('width', 0),
                         'image_height': item.get('height', 0),
-                        'nsfw': item.get('nsfw', False)
+                        'nsfw': is_nsfw,
+                        'nsfw_level': nsfw_level
                     }
                     
                     # Add to both new queue and legacy list
@@ -735,6 +763,8 @@ class CivitaiRandomizerScript(scripts.Script):
             self.cached_prompts = list(set(self.cached_prompts))  # Remove duplicates
             
             print(f"Fetched {len(prompts)} new prompts from Civitai")
+            print(f"[Debug] Processed {total_processed} items, {nsfw_count} marked as NSFW ({(nsfw_count/total_processed*100):.1f}%)" if total_processed > 0 else "")
+            print(f"[Debug] NSFW filter setting: '{nsfw_filter}', API parameter: {nsfw_param}")
             if invalid_items > 0 or invalid_meta > 0:
                 print(f"Skipped {invalid_items} invalid items and {invalid_meta} items with no metadata")
             
