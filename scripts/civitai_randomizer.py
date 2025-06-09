@@ -1204,8 +1204,8 @@ class CivitaiRandomizerScript(scripts.Script):
         return matches
 
     def search_loras_db(self, name_query: str = "", hash_query: str = "", 
-                       has_metadata: bool = False, has_hash: bool = False, 
-                       limit: int = 100) -> List[Dict[str, Any]]:
+                       folder_query: str = "", has_metadata: bool = False, 
+                       has_hash: bool = False, limit: int = 100) -> List[Dict[str, Any]]:
         """Search Loras in database with various filters"""
         try:
             with self.get_db_connection() as conn:
@@ -1226,6 +1226,10 @@ class CivitaiRandomizerScript(scripts.Script):
                     where_conditions.append('UPPER(sha256) LIKE ?')
                     params.append(f'%{hash_query.upper()}%')
                 
+                if folder_query:
+                    where_conditions.append('LOWER(relative_path) LIKE ?')
+                    params.append(f'%{folder_query.lower()}%')
+                
                 if has_metadata:
                     where_conditions.append('metadata_json IS NOT NULL AND metadata_json != ""')
                 
@@ -1236,7 +1240,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 base_query = 'SELECT * FROM loras'
                 if where_conditions:
                     base_query += ' WHERE ' + ' AND '.join(where_conditions)
-                base_query += ' ORDER BY filename LIMIT ?'
+                base_query += ' ORDER BY relative_path, filename LIMIT ?'
                 params.append(limit)
                 
                 cursor.execute(base_query, params)
@@ -1322,7 +1326,8 @@ class CivitaiRandomizerScript(scripts.Script):
                 
                 <!-- File info -->
                 <div style='font-size: 11px; color: #bbb; margin-bottom: 8px;'>
-                    <strong>Path:</strong> {lora.get('relative_path', 'Unknown')}<br>
+                    <strong>Folder:</strong> <span style='color: #4ade80; font-family: monospace;'>{os.path.dirname(lora.get('relative_path', '')) or '(root)'}</span><br>
+                    <strong>File:</strong> {os.path.basename(lora.get('relative_path', 'Unknown'))}<br>
                     <strong>Size:</strong> {size_str} | <strong>Modified:</strong> {mod_date}
                 </div>
                 
@@ -2006,12 +2011,14 @@ def _create_lora_management_tab():
         with gr.Row():
             search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
             search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
+            search_folder = gr.Textbox(placeholder="Search by folder path...", label="Folder Filter", scale=2)
             search_btn = gr.Button("🔍 Search", variant="primary", scale=1)
         
         with gr.Row():
             filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
             filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
             show_all_btn = gr.Button("📋 Show All", variant="secondary")
+            show_folders_btn = gr.Button("📁 Show Folders", variant="secondary")
         
         # Results display
         results_info = gr.HTML("Results: No search performed")
@@ -2026,10 +2033,12 @@ def _create_lora_management_tab():
         'vacuum_db_btn': vacuum_db_btn,
         'search_name': search_name,
         'search_hash': search_hash,
+        'search_folder': search_folder,
         'search_btn': search_btn,
         'filter_has_metadata': filter_has_metadata,
         'filter_has_hash': filter_has_hash,
         'show_all_btn': show_all_btn,
+        'show_folders_btn': show_folders_btn,
         'results_info': results_info,
         'lora_display': lora_display
     }
@@ -2144,6 +2153,49 @@ def _create_event_handlers():
         except Exception as e:
             return f"<div style='color: #ff6b6b;'>Search error: {str(e)}</div>"
     
+    def search_loras_with_filters(name_query, hash_query, folder_query, has_metadata, has_hash):
+        """Search Loras in database with all filters"""
+        try:
+            # Perform search with all filters
+            results = script_instance.search_loras_db(
+                name_query=name_query or "",
+                hash_query=hash_query or "",
+                folder_query=folder_query or "",
+                has_metadata=has_metadata,
+                has_hash=has_hash,
+                limit=200
+            )
+            
+            # Build query info
+            query_parts = []
+            if name_query:
+                query_parts.append(f"name contains '{name_query}'")
+            if hash_query:
+                query_parts.append(f"hash contains '{hash_query}'")
+            if folder_query:
+                query_parts.append(f"folder contains '{folder_query}'")
+            if has_metadata:
+                query_parts.append("has metadata")
+            if has_hash:
+                query_parts.append("has hash")
+            
+            query_info = "Filters: " + ", ".join(query_parts) if query_parts else "No filters applied"
+            
+            # Format results
+            results_html = script_instance.format_lora_database_display(results, query_info)
+            
+            return results_html
+            
+        except Exception as e:
+            error_msg = f"Search error: {str(e)}"
+            error_html = f"""
+            <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
+                <h3>🚨 Search Error</h3>
+                <p>{error_msg}</p>
+            </div>
+            """
+            return error_html
+    
     def show_all_loras():
         """Show all Loras in database"""
         try:
@@ -2152,6 +2204,79 @@ def _create_event_handlers():
             return results_html
         except Exception as e:
             return f"<div style='color: #ff6b6b;'>Error loading Loras: {str(e)}</div>"
+    
+    def show_folders():
+        """Show all unique folders in the database"""
+        try:
+            with script_instance.get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT 
+                        CASE 
+                            WHEN instr(relative_path, '/') > 0 
+                            THEN substr(relative_path, 1, instr(relative_path, '/') - 1)
+                            ELSE '(root)'
+                        END as folder_path,
+                        COUNT(*) as file_count
+                    FROM loras 
+                    GROUP BY folder_path
+                    ORDER BY folder_path
+                ''')
+                
+                folders = cursor.fetchall()
+                
+                if not folders:
+                    return """
+                    <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
+                        <h3>📁 No Folders Found</h3>
+                        <p>No Loras in database. Scan your Lora directory first.</p>
+                    </div>
+                    """
+                
+                folder_items = []
+                total_folders = len(folders)
+                total_files = sum(folder[1] for folder in folders)
+                
+                # Header
+                folder_items.append(f"""
+                <div style='margin-bottom: 15px; padding: 10px; background: #1c2938; border-radius: 6px; 
+                           text-align: center; color: #fff; border: 1px solid #444;'>
+                    <strong>📁 Folder Structure:</strong> {total_folders} folders, {total_files} files total
+                </div>
+                """)
+                
+                # Folder list
+                for folder_path, file_count in folders:
+                    folder_item = f"""
+                    <div style='margin-bottom: 8px; padding: 8px 12px; border: 1px solid #444; border-radius: 6px; 
+                               background: #2a2a2a; color: #fff; display: flex; justify-content: space-between; align-items: center;'>
+                        <div>
+                            <span style='color: #4ade80; font-family: monospace; font-size: 13px;'>📁 {folder_path}</span>
+                        </div>
+                        <div>
+                            <span style='color: #ffd700; font-size: 11px; background: #333; padding: 2px 6px; border-radius: 3px;'>
+                                {file_count} files
+                            </span>
+                        </div>
+                    </div>
+                    """
+                    folder_items.append(folder_item)
+                
+                results_html = f"""
+                <div style='max-height: 600px; overflow-y: auto; padding: 10px; background: #0d1117; border-radius: 8px;'>
+                    {''.join(folder_items)}
+                </div>
+                """
+                
+                return results_html
+                
+        except Exception as e:
+            return f"""
+            <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
+                <h3>🚨 Error Loading Folders</h3>
+                <p>{str(e)}</p>
+            </div>
+            """
     
     # Main Controls Event Handlers
     def clear_prompt_cache():
@@ -2303,7 +2428,9 @@ def _create_event_handlers():
         'vacuum_database': vacuum_database,
         'get_database_stats': get_database_stats,
         'search_loras': search_loras,
+        'search_loras_with_filters': search_loras_with_filters,
         'show_all_loras': show_all_loras,
+        'show_folders': show_folders,
         'clear_prompt_cache': clear_prompt_cache,
         'fetch_new_prompts': fetch_new_prompts,
         'get_prompts_and_update_queue': get_prompts_and_update_queue,
@@ -2478,12 +2605,18 @@ def on_ui_tabs():
         )
         
         lora_management_tab['search_btn'].click(
-            event_handlers['search_loras'],
+            event_handlers['search_loras_with_filters'],
+            inputs=[lora_management_tab['search_name'], lora_management_tab['search_hash'], lora_management_tab['search_folder'], lora_management_tab['filter_has_metadata'], lora_management_tab['filter_has_hash']],
             outputs=[lora_management_tab['lora_display']]
         )
         
         lora_management_tab['show_all_btn'].click(
             event_handlers['show_all_loras'],
+            outputs=[lora_management_tab['lora_display']]
+        )
+        
+        lora_management_tab['show_folders_btn'].click(
+            event_handlers['show_folders'],
             outputs=[lora_management_tab['lora_display']]
         )
         
