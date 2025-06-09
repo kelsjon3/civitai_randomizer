@@ -529,27 +529,20 @@ class CivitaiRandomizerScript(scripts.Script):
             print(f"  Negative: '{original_negative[:30]}...' → '{p.negative_prompt[:30]}...'")
 
     def load_config(self):
-        """Load configuration from file"""
+        """Load API key from WebUI settings"""
         try:
-            if os.path.exists(self.config_file):
-                with open(self.config_file, 'r') as f:
-                    config = json.load(f)
-                    self.api_key = config.get('api_key', '')
-                    print(f"Loaded API key from config: {'***' + self.api_key[-4:] if len(self.api_key) > 4 else 'empty'}")
+            import modules.shared as shared
+            self.api_key = getattr(shared.opts, 'civitai_api_key', '')
+            if self.api_key:
+                print(f"Loaded API key from settings: {'***' + self.api_key[-4:] if len(self.api_key) > 4 else 'empty'}")
+            else:
+                print("No API key configured in settings")
         except Exception as e:
-            print(f"Failed to load config: {e}")
+            print(f"Failed to load API key from settings: {e}")
 
     def save_config(self):
-        """Save configuration to file"""
-        try:
-            config = {
-                'api_key': self.api_key
-            }
-            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
-            with open(self.config_file, 'w') as f:
-                json.dump(config, f, indent=2)
-        except Exception as e:
-            print(f"Failed to save config: {e}")
+        """Configuration is now saved through WebUI settings system"""
+        pass  # No longer needed - settings are auto-saved by WebUI
 
     def register_main_ui_components(self):
         """Register main UI components for prompt field updates"""
@@ -891,23 +884,17 @@ def on_ui_tabs():
     
     if script_instance is None:
         script_instance = CivitaiRandomizerScript()
+        # Load API key from settings when tab is created
+        script_instance.load_config()
     
     with gr.Blocks() as civitai_tab:
         gr.HTML("<h2>🎲 Civitai Prompt & LORA Randomizer</h2>")
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
-        # API Configuration
+        # API Status (key now in settings)
         with gr.Row():
-            api_key_input = gr.Textbox(
-                label="Civitai API Key", 
-                type="password",
-                placeholder="Enter your Civitai API key (optional for public content)",
-                value=script_instance.api_key,
-                info="API key is saved automatically and persists between sessions"
-            )
-            test_api_btn = gr.Button("Test API", variant="secondary", size="sm")
-        
-        api_status = gr.HTML("")
+            test_api_btn = gr.Button("Test API Connection", variant="secondary", size="sm")
+            api_status = gr.HTML("API key configured in Settings → Civitai Randomizer")
         
         # Main Controls
         with gr.Row():
@@ -1039,17 +1026,15 @@ def on_ui_tabs():
                 )
         
         # Event handlers
-        def test_api_connection(api_key):
-            return script_instance.test_civitai_api(api_key)
+        def test_api_connection():
+            import modules.shared as shared
+            api_key = getattr(shared.opts, 'civitai_api_key', '')
+            result = script_instance.test_civitai_api(api_key)
+            return result
         
         def refresh_lora_list():
             loras = script_instance.get_available_loras()
             return gr.CheckboxGroup.update(choices=loras)
-        
-        def update_api_key(api_key):
-            script_instance.api_key = api_key
-            script_instance.save_config()
-            return ""
         
         def clear_prompt_cache():
             script_instance.cached_prompts = []
@@ -1057,7 +1042,9 @@ def on_ui_tabs():
             script_instance.queue_index = 0
             return "Cached prompts: 0", "Prompt queue: 0 prompts available"
         
-        def fetch_new_prompts(api_key, nsfw_filter, keyword_filter, sort_method):
+        def fetch_new_prompts(nsfw_filter, keyword_filter, sort_method):
+            import modules.shared as shared
+            api_key = getattr(shared.opts, 'civitai_api_key', '')
             script_instance.api_key = api_key
             prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
             
@@ -1107,19 +1094,12 @@ def on_ui_tabs():
         # Bind events
         test_api_btn.click(
             test_api_connection,
-            inputs=[api_key_input],
             outputs=[api_status]
         )
         
         refresh_loras_btn.click(
             refresh_lora_list,
             outputs=[lora_selection]
-        )
-        
-        api_key_input.change(
-            update_api_key,
-            inputs=[api_key_input],
-            outputs=[api_status]
         )
         
         clear_cache_btn.click(
@@ -1129,7 +1109,7 @@ def on_ui_tabs():
         
         fetch_prompts_btn.click(
             fetch_new_prompts,
-            inputs=[api_key_input, nsfw_filter, keyword_filter, sort_method],
+            inputs=[nsfw_filter, keyword_filter, sort_method],
             outputs=[cache_status, prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt]
         )
         
@@ -1201,7 +1181,21 @@ def on_ui_tabs():
     return [(civitai_tab, "Civitai Randomizer", "civitai_randomizer")]
 
 def on_ui_settings():
-    pass
+    """Add Civitai Randomizer settings to the Settings tab"""
+    import modules.shared as shared
+    
+    section = ('civitai_randomizer', "Civitai Randomizer")
+    
+    shared.opts.add_option(
+        "civitai_api_key",
+        shared.OptionInfo(
+            "",
+            "Civitai API Key (optional for public content)",
+            gr.Textbox,
+            {"type": "password", "placeholder": "Enter your Civitai API key"},
+            section=section
+        )
+    )
 
 script_callbacks.on_ui_tabs(on_ui_tabs)
 script_callbacks.on_ui_settings(on_ui_settings) 
