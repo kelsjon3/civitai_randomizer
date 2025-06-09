@@ -34,6 +34,11 @@ class CivitaiRandomizerScript(scripts.Script):
         self.img2img_positive_prompt_ref = None  
         self.img2img_negative_prompt_ref = None
         
+        # Store last used filter settings for "Fetch More" functionality
+        self.last_nsfw_filter = "Include All"
+        self.last_keyword_filter = ""
+        self.last_sort_method = "Most Reactions"
+        
         # Remove problematic on_after_component calls for now
         # We'll try a different approach
         
@@ -355,6 +360,11 @@ class CivitaiRandomizerScript(scripts.Script):
     def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100) -> List[str]:
         """Fetch prompts from Civitai API"""
         try:
+            # Store last used settings for "Fetch More" functionality
+            self.last_nsfw_filter = nsfw_filter
+            self.last_keyword_filter = keyword_filter
+            self.last_sort_method = sort_method
+            
             # Debug: Print API key status
             print(f"[Civitai API] API key present: {bool(self.api_key)}")
             if self.api_key:
@@ -1130,12 +1140,18 @@ def _create_event_handlers():
         return status_msg, queue_info, queue_display
     
     def fetch_more_from_queue():
-        """Fetch more prompts using the same settings"""
-        # Use default settings for now - could be enhanced to remember last settings
+        """Fetch more prompts using the same settings as last fetch"""
         import modules.shared as shared
         api_key = getattr(shared.opts, 'civitai_api_key', '')
         script_instance.api_key = api_key
-        prompts = script_instance.fetch_civitai_prompts("Include All", "", "Most Reactions")
+        
+        # Use last used filter settings
+        print(f"[Fetch More] Using last settings: NSFW={script_instance.last_nsfw_filter}, keyword='{script_instance.last_keyword_filter}', sort={script_instance.last_sort_method}")
+        prompts = script_instance.fetch_civitai_prompts(
+            script_instance.last_nsfw_filter, 
+            script_instance.last_keyword_filter, 
+            script_instance.last_sort_method
+        )
         
         # Update all displays
         status_html = f"Cached prompts: {len(script_instance.cached_prompts)}"
