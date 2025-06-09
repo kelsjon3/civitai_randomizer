@@ -666,11 +666,16 @@ class CivitaiRandomizerScript(scripts.Script):
                 print(f"[Debug] No API key provided - making unauthenticated request")
             
             # Convert filter options to API parameters
+            # NOTE: The /images endpoint doesn't respect NSFW filtering properly
+            # According to Civitai docs, nsfw=true should show NSFW content but
+            # API behavior suggests this may require different approach
             nsfw_param = None
             if nsfw_filter == "Exclude NSFW":
                 nsfw_param = False
             elif nsfw_filter == "Only NSFW":
                 nsfw_param = True
+                print("[NSFW Debug] WARNING: 'Only NSFW' requested but API may not filter properly")
+                print("[NSFW Debug] The /images endpoint may not respect nsfw=true filtering")
             
             sort_mapping = {
                 "Most Reactions": "Most Reactions",
@@ -835,10 +840,15 @@ class CivitaiRandomizerScript(scripts.Script):
                 print(f"[NSFW Debug] Processed {total_processed} items, {nsfw_count} marked as NSFW ({nsfw_percentage:.1f}%)")
                 print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API parameter: {nsfw_param}")
                 if nsfw_filter == "Only NSFW" and nsfw_count == 0:
-                    print(f"[NSFW WARNING] Expected NSFW content but got 0 NSFW images! This might indicate:")
-                    print(f"  - API key lacks NSFW permissions")
-                    print(f"  - No NSFW content available with current filters")
-                    print(f"  - API parameter format issue")
+                    print(f"[NSFW WARNING] Expected NSFW content but got 0 NSFW images!")
+                    print(f"[NSFW DEBUG] SOLUTION STEPS:")
+                    print(f"[NSFW DEBUG]   1. Go to https://civitai.com/user/account")
+                    print(f"[NSFW DEBUG]   2. Scroll down to 'Content Moderation' section")
+                    print(f"[NSFW DEBUG]   3. Enable 'Show mature content'")
+                    print(f"[NSFW DEBUG]   4. Set browsing levels to include explicit content")
+                    print(f"[NSFW DEBUG]   5. Disable 'Blur mature content' if desired")
+                    print(f"[NSFW DEBUG] The /images API endpoint inherits your account's content settings!")
+                    print(f"[NSFW DEBUG] Without proper account settings, even nsfw=true won't show NSFW content")
             if invalid_items > 0 or invalid_meta > 0:
                 print(f"Skipped {invalid_items} invalid items and {invalid_meta} items with no metadata")
             
