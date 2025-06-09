@@ -242,6 +242,116 @@ class CivitaiRandomizerScript(scripts.Script):
         except Exception as e:
             return f"<span style='color: red;'>✗ Unexpected error: {str(e)}</span>"
 
+    def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int) -> tuple:
+        """Setup headers and parameters for Civitai API request"""
+        # Setup headers
+        headers = {}
+        if self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}'
+            print(f"[Debug] Using API key: {self.api_key[:8]}..." if len(self.api_key) > 8 else f"[Debug] Using API key: {self.api_key}")
+        else:
+            print(f"[Debug] No API key provided - making unauthenticated request")
+        
+        # Convert filter options to API parameters
+        nsfw_param = None
+        if nsfw_filter == "Exclude NSFW":
+            nsfw_param = "None"
+            print("[NSFW Debug] Using enum value 'None' to exclude NSFW content")
+        elif nsfw_filter == "Only NSFW":
+            nsfw_param = "X"
+            print("[NSFW Debug] Using enum value 'X' to request NSFW content")
+        
+        sort_mapping = {
+            "Most Reactions": "Most Reactions",
+            "Most Comments": "Most Comments", 
+            "Most Collected": "Most Collected",
+            "Newest": "Newest"
+        }
+        
+        params = {
+            'limit': limit,
+            'sort': sort_mapping.get(sort_method, "Most Reactions")
+        }
+        
+        if nsfw_param is not None:
+            params['nsfw'] = nsfw_param
+        
+        # Debug output
+        print(f"[Civitai API] Request params: {params}")
+        print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API param: {nsfw_param} (type: {type(nsfw_param)})")
+        
+        return headers, params
+
+    def _validate_api_response(self, response) -> dict:
+        """Validate and parse API response"""
+        # Debug response info
+        print(f"[Civitai API] Response status: {response.status_code}")
+        if 'X-RateLimit-Remaining' in response.headers:
+            print(f"[Civitai API] Rate limit remaining: {response.headers['X-RateLimit-Remaining']}")
+        
+        if response.status_code != 200:
+            print(f"Civitai API error: {response.status_code}")
+            print(f"Response content: {response.text[:500]}")
+            return {}
+        
+        # Parse JSON response
+        try:
+            data = response.json()
+            print(f"[Civitai API] JSON parsed successfully")
+            print(f"[Civitai API] JSON response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+            return data
+        except (ValueError, requests.exceptions.JSONDecodeError) as e:
+            print(f"Failed to parse JSON response: {e}")
+            print(f"Response content: {response.text[:500]}")
+            return {}
+
+    def _create_prompt_pair(self, item: dict, meta: dict) -> dict:
+        """Create a comprehensive prompt pair from API item data"""
+        positive_prompt = meta.get('prompt', '')
+        negative_prompt = meta.get('negativePrompt', '')
+        
+        # Extract all available information
+        stats = item.get('stats', {})
+        
+        return {
+            'positive': self.clean_prompt(positive_prompt),
+            'negative': self.clean_prompt(negative_prompt) if negative_prompt else '',
+            'image_url': item.get('url', ''),
+            'image_width': item.get('width', 0),
+            'image_height': item.get('height', 0),
+            'nsfw': item.get('nsfw', False),
+            'nsfw_level': item.get('nsfwLevel', 'None'),
+            # Additional image metadata
+            'id': item.get('id', ''),
+            'hash': item.get('hash', ''),
+            'created_at': item.get('createdAt', ''),
+            'post_id': item.get('postId', ''),
+            'username': item.get('username', ''),
+            'base_model': item.get('baseModel', ''),
+            # Stats
+            'likes': stats.get('likeCount', 0),
+            'dislikes': stats.get('dislikeCount', 0), 
+            'laughs': stats.get('laughCount', 0),
+            'cries': stats.get('cryCount', 0),
+            'hearts': stats.get('heartCount', 0),
+            'comments': stats.get('commentCount', 0),
+            # Meta information (generation parameters)
+            'meta': meta,
+            'steps': meta.get('steps', ''),
+            'sampler': meta.get('sampler', ''),
+            'cfg_scale': meta.get('cfgScale', ''),
+            'seed': meta.get('seed', ''),
+            'model_name': meta.get('Model', ''),
+            'clip_skip': meta.get('clipSkip', ''),
+            'size': meta.get('Size', ''),
+            'model_hash': meta.get('Model hash', ''),
+            'vae': meta.get('VAE', ''),
+            'denoising_strength': meta.get('Denoising strength', ''),
+            'hires_upscaler': meta.get('Hires upscaler', ''),
+            'hires_steps': meta.get('Hires steps', ''),
+            'hires_upscale': meta.get('Hires upscale', ''),
+        }
+
     def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100) -> List[str]:
         """Fetch prompts from Civitai API"""
         try:
@@ -250,46 +360,12 @@ class CivitaiRandomizerScript(scripts.Script):
             if self.api_key:
                 print(f"[Civitai API] API key length: {len(self.api_key)}")
             
-            headers = {}
-            if self.api_key:
-                headers['Authorization'] = f'Bearer {self.api_key}'
-                print(f"[Debug] Using API key: {self.api_key[:8]}..." if len(self.api_key) > 8 else f"[Debug] Using API key: {self.api_key}")
-            else:
-                print(f"[Debug] No API key provided - making unauthenticated request")
-            
-            # Convert filter options to API parameters
-            # According to Civitai API docs, nsfw can be boolean OR enum (None, Soft, Mature, X)
-            # Let's try using enum values instead of boolean for NSFW filtering
-            nsfw_param = None
-            if nsfw_filter == "Exclude NSFW":
-                nsfw_param = "None"  # Use enum value instead of False
-                print("[NSFW Debug] Using enum value 'None' to exclude NSFW content")
-            elif nsfw_filter == "Only NSFW":
-                nsfw_param = "X"  # Use enum value for explicit content instead of True
-                print("[NSFW Debug] Using enum value 'X' to request NSFW content")
-                print("[NSFW Debug] API docs show nsfw can be boolean OR enum (None, Soft, Mature, X)")
-            # For "Include All", leave nsfw_param as None (undefined returns all)
-            
-            sort_mapping = {
-                "Most Reactions": "Most Reactions",
-                "Most Comments": "Most Comments", 
-                "Most Collected": "Most Collected",
-                "Newest": "Newest"
-            }
-            
-            params = {
-                'limit': limit,
-                'sort': sort_mapping.get(sort_method, "Most Reactions")
-            }
-            
-            if nsfw_param is not None:
-                params['nsfw'] = nsfw_param
+            headers, params = self._setup_api_request(nsfw_filter, sort_method, limit)
             
             # Debug: Print request details
             print(f"[Civitai API] Request URL: https://civitai.com/api/v1/images")
             print(f"[Civitai API] Request params: {params}")
             print(f"[Civitai API] Headers present: {list(headers.keys())}")
-            print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API param: {nsfw_param} (type: {type(nsfw_param)})")
             
             response = requests.get(
                 'https://civitai.com/api/v1/images',
@@ -298,33 +374,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 timeout=30
             )
             
-            # Debug: Print comprehensive response info
-            print(f"[Civitai API] Response status: {response.status_code}")
-            print(f"[Civitai API] Response headers: {dict(response.headers)}")
-            if 'X-RateLimit-Remaining' in response.headers:
-                print(f"[Civitai API] Rate limit remaining: {response.headers['X-RateLimit-Remaining']}")
-            
-            if response.status_code != 200:
-                print(f"Civitai API error: {response.status_code}")
-                print(f"Response content: {response.text[:500]}")
-                return []
-            
-            # Debug: Print raw response size and first part
-            response_text = response.text
-            print(f"[Civitai API] Raw response size: {len(response_text)} characters")
-            print(f"[Civitai API] Raw response preview (first 1000 chars): {response_text[:1000]}")
-            
-            # Parse JSON response with error handling
-            try:
-                data = response.json()
-                print(f"[Civitai API] JSON parsed successfully")
-                print(f"[Civitai API] JSON response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
-                if 'metadata' in data:
-                    print(f"[Civitai API] Metadata: {data['metadata']}")
-            except (ValueError, requests.exceptions.JSONDecodeError) as e:
-                print(f"Failed to parse JSON response: {e}")
-                print(f"Response content: {response.text[:500]}")
-                return []
+            data = self._validate_api_response(response)
             
             if not data or not isinstance(data, dict):
                 print("Invalid response format from Civitai API")
@@ -375,8 +425,6 @@ class CivitaiRandomizerScript(scripts.Script):
                     continue
                 
                 positive_prompt = meta.get('prompt', '')
-                negative_prompt = meta.get('negativePrompt', '')
-                
                 if positive_prompt and isinstance(positive_prompt, str):
                     # Apply keyword filtering to positive prompt
                     if keyword_filter:
@@ -384,58 +432,12 @@ class CivitaiRandomizerScript(scripts.Script):
                         if not any(keyword in positive_prompt.lower() for keyword in keywords):
                             continue
                     
-                    # Get image URL from the item itself (not meta)
-                    image_url = item.get('url', '')
-                    is_nsfw = item.get('nsfw', False)
-                    nsfw_level = item.get('nsfwLevel', 'None')
+                    prompt_pair = self._create_prompt_pair(item, meta)
                     
                     # Debug: Count NSFW items
                     total_processed += 1
-                    if is_nsfw:
+                    if prompt_pair['nsfw']:
                         nsfw_count += 1
-                    
-                    # Extract all available image information
-                    stats = item.get('stats', {})
-                    
-                    # Create comprehensive prompt pair with all available info
-                    prompt_pair = {
-                        'positive': self.clean_prompt(positive_prompt),
-                        'negative': self.clean_prompt(negative_prompt) if negative_prompt else '',
-                        'image_url': image_url,
-                        'image_width': item.get('width', 0),
-                        'image_height': item.get('height', 0),
-                        'nsfw': is_nsfw,
-                        'nsfw_level': nsfw_level,
-                        # Additional image metadata
-                        'id': item.get('id', ''),
-                        'hash': item.get('hash', ''),  # blurhash
-                        'created_at': item.get('createdAt', ''),
-                        'post_id': item.get('postId', ''),
-                        'username': item.get('username', ''),
-                        'base_model': item.get('baseModel', ''),
-                        # Stats
-                        'likes': stats.get('likeCount', 0),
-                        'dislikes': stats.get('dislikeCount', 0), 
-                        'laughs': stats.get('laughCount', 0),
-                        'cries': stats.get('cryCount', 0),
-                        'hearts': stats.get('heartCount', 0),
-                        'comments': stats.get('commentCount', 0),
-                        # Meta information (generation parameters)
-                        'meta': meta,  # Store full meta for detailed display
-                        'steps': meta.get('steps', ''),
-                        'sampler': meta.get('sampler', ''),
-                        'cfg_scale': meta.get('cfgScale', ''),
-                        'seed': meta.get('seed', ''),
-                        'model_name': meta.get('Model', ''),
-                        'clip_skip': meta.get('clipSkip', ''),
-                        'size': meta.get('Size', ''),
-                        'model_hash': meta.get('Model hash', ''),
-                        'vae': meta.get('VAE', ''),
-                        'denoising_strength': meta.get('Denoising strength', ''),
-                        'hires_upscaler': meta.get('Hires upscaler', ''),
-                        'hires_steps': meta.get('Hires steps', ''),
-                        'hires_upscale': meta.get('Hires upscale', ''),
-                    }
                     
                     # Add to both new queue and legacy list
                     self.prompt_queue.append(prompt_pair)
@@ -448,7 +450,7 @@ class CivitaiRandomizerScript(scripts.Script):
             if total_processed > 0:
                 nsfw_percentage = (nsfw_count/total_processed*100)
                 print(f"[NSFW Debug] Processed {total_processed} items, {nsfw_count} marked as NSFW ({nsfw_percentage:.1f}%)")
-                print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API parameter: {nsfw_param}")
+                print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API parameter: {params.get('nsfw', 'None')}")
                 if nsfw_filter == "Only NSFW" and nsfw_count == 0:
                     print(f"[NSFW WARNING] Expected NSFW content but got 0 NSFW images!")
                     print(f"[NSFW DEBUG] SOLUTION STEPS:")
