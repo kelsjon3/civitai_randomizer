@@ -410,6 +410,7 @@ class CivitaiRandomizerScript(scripts.Script):
             invalid_meta = 0
             nsfw_count = 0
             total_processed = 0
+            filtered_out_count = 0
             
             for item in items:
                 # Skip None items
@@ -439,9 +440,19 @@ class CivitaiRandomizerScript(scripts.Script):
                     if prompt_pair['nsfw']:
                         nsfw_count += 1
                     
-                    # Add to both new queue and legacy list
-                    self.prompt_queue.append(prompt_pair)
-                    prompts.append(positive_prompt)  # Legacy compatibility
+                    # Apply client-side NSFW filtering
+                    should_include = True
+                    if nsfw_filter == "Exclude NSFW" and prompt_pair['nsfw']:
+                        should_include = False
+                    elif nsfw_filter == "Only NSFW" and not prompt_pair['nsfw']:
+                        should_include = False
+                    
+                    # Add to queue only if it passes the filter
+                    if should_include:
+                        self.prompt_queue.append(prompt_pair)
+                        prompts.append(positive_prompt)  # Legacy compatibility
+                    else:
+                        filtered_out_count += 1
             
             self.cached_prompts.extend(prompts)
             self.cached_prompts = list(set(self.cached_prompts))  # Remove duplicates
@@ -463,6 +474,8 @@ class CivitaiRandomizerScript(scripts.Script):
                     print(f"[NSFW DEBUG] Without proper account settings, even nsfw=true won't show NSFW content")
             if invalid_items > 0 or invalid_meta > 0:
                 print(f"Skipped {invalid_items} invalid items and {invalid_meta} items with no metadata")
+            if filtered_out_count > 0:
+                print(f"[NSFW Filter] Filtered out {filtered_out_count} items due to '{nsfw_filter}' setting")
             
             # Reset queue index when new prompts are added
             if len(self.prompt_queue) > 0:
