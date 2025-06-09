@@ -611,6 +611,203 @@ class CivitaiRandomizerScript(scripts.Script):
 # Global reference to the script instance for tab access
 script_instance = None
 
+def _create_main_controls_tab():
+    """Create the main controls tab UI components"""
+    with gr.TabItem("Main Controls"):
+        # API Status (key now in settings)
+        with gr.Row():
+            test_api_btn = gr.Button("Test API", variant="secondary", size="sm", scale=1)
+            api_status = gr.HTML("API key configured in Settings → Civitai Randomizer", scale=4)
+        
+        # Main Controls
+        with gr.Row():
+            enable_randomizer = gr.Checkbox(
+                label="Enable Civitai Randomizer",
+                value=False,
+                info="Automatically fetch new prompts for each generation"
+            )
+            bypass_prompts = gr.Checkbox(
+                label="Bypass Prompt Fetching",
+                value=False,
+                info="Use only custom prompts and LORA randomization"
+            )
+        
+        # Filtering Controls
+        with gr.Row():
+            nsfw_filter = gr.Dropdown(
+                label="NSFW Content Filter",
+                choices=["Include All", "Exclude NSFW", "Only NSFW"],
+                value="Include All",
+                info="Filter content based on NSFW classification"
+            )
+            
+        # Prompt Filtering
+        with gr.Row():
+            keyword_filter = gr.Textbox(
+                label="Keyword Filter",
+                placeholder="woman, portrait, anime, landscape",
+                info="Comma-separated keywords (OR logic): only fetch prompts containing at least one of these words"
+            )
+            sort_method = gr.Dropdown(
+                label="Sort Method",
+                choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
+                value="Most Reactions"
+            )
+        
+        # Cache Management
+        with gr.Row():
+            clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm", scale=1)
+            cache_status = gr.HTML("Cached prompts: 0", scale=4)
+        
+        # Custom Prompt Management
+        with gr.Accordion("Custom Prompt Settings", open=False):
+            with gr.Row():
+                custom_prompt_start = gr.Textbox(
+                    label="Custom Prompt (Beginning)",
+                    placeholder="Text to add at the beginning of each prompt",
+                    lines=2
+                )
+            with gr.Row():
+                custom_prompt_end = gr.Textbox(
+                    label="Custom Prompt (End)",
+                    placeholder="Text to add at the end of each prompt",
+                    lines=2
+                )
+        
+        # LORA Management
+        with gr.Accordion("LORA Management", open=False):
+            with gr.Row():
+                enable_lora_randomizer = gr.Checkbox(
+                    label="Enable LORA Randomizer",
+                    value=False,
+                    info="Randomly select and apply LORAs"
+                )
+                refresh_loras_btn = gr.Button("Refresh LORA List", variant="secondary", size="sm")
+            
+            lora_selection = gr.CheckboxGroup(
+                label="Available LORAs",
+                choices=[],
+                value=[],
+                info="Select LORAs to include in randomization"
+            )
+            
+            with gr.Row():
+                lora_strength_min = gr.Slider(
+                    label="Min LORA Strength",
+                    minimum=0.1,
+                    maximum=2.0,
+                    value=0.5,
+                    step=0.1
+                )
+                lora_strength_max = gr.Slider(
+                    label="Max LORA Strength",
+                    minimum=0.1,
+                    maximum=2.0,
+                    value=1.0,
+                    step=0.1
+                )
+            
+            max_loras_per_gen = gr.Slider(
+                label="Max LORAs per Generation",
+                minimum=1,
+                maximum=5,
+                value=2,
+                step=1,
+                info="Maximum number of LORAs to apply randomly"
+            )
+        
+        # Main Action Buttons
+        with gr.Accordion("Prompt Population Controls", open=True):
+            with gr.Row():
+                fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg", scale=1)
+                populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg", scale=1)
+                generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg", scale=1)
+            
+            prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
+            
+            # Hidden textboxes to store current prompts for JavaScript access - this is the "bridge"
+            hidden_positive_prompt = gr.Textbox(
+                value="No prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
+                visible=False, 
+                elem_id="civitai_hidden_positive"
+            )
+            hidden_negative_prompt = gr.Textbox(
+                value="No negative prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
+                visible=False,
+                elem_id="civitai_hidden_negative"
+            )
+            
+            with gr.Row():
+                custom_negative_prompt = gr.Textbox(
+                    label="Custom Negative Prompt",
+                    placeholder="Text to add to negative prompts (optional)",
+                    lines=2,
+                    info="This will be combined with Civitai negative prompts"
+                )
+    
+    # Return all the UI components that need to be referenced later
+    return {
+        'test_api_btn': test_api_btn,
+        'api_status': api_status,
+        'enable_randomizer': enable_randomizer,
+        'bypass_prompts': bypass_prompts,
+        'nsfw_filter': nsfw_filter,
+        'keyword_filter': keyword_filter,
+        'sort_method': sort_method,
+        'clear_cache_btn': clear_cache_btn,
+        'cache_status': cache_status,
+        'custom_prompt_start': custom_prompt_start,
+        'custom_prompt_end': custom_prompt_end,
+        'enable_lora_randomizer': enable_lora_randomizer,
+        'refresh_loras_btn': refresh_loras_btn,
+        'lora_selection': lora_selection,
+        'lora_strength_min': lora_strength_min,
+        'lora_strength_max': lora_strength_max,
+        'max_loras_per_gen': max_loras_per_gen,
+        'fetch_prompts_btn': fetch_prompts_btn,
+        'populate_btn': populate_btn,
+        'generate_forever_btn': generate_forever_btn,
+        'prompt_queue_status': prompt_queue_status,
+        'hidden_positive_prompt': hidden_positive_prompt,
+        'hidden_negative_prompt': hidden_negative_prompt,
+        'custom_negative_prompt': custom_negative_prompt
+    }
+
+def _create_queue_tab():
+    """Create the prompt queue tab UI components"""
+    with gr.TabItem("Prompt Queue"):
+        gr.HTML("<h3>📋 Prompt Queue Management</h3>")
+        gr.HTML("<p>View and manage your fetched prompts queue. Click on images to view full size.</p>")
+        
+        # Queue status and info
+        with gr.Row():
+            queue_info = gr.HTML("Queue: 0 prompts available")
+            refresh_queue_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm", scale=1)
+        
+        # Queue management controls
+        with gr.Row():
+            fetch_more_btn = gr.Button("🔄 Fetch More Prompts", variant="primary", size="sm")
+            clear_queue_btn = gr.Button("🗑️ Clear Queue", variant="secondary", size="sm")
+            reset_index_btn = gr.Button("⏪ Reset to Start", variant="secondary", size="sm")
+        
+        # Main queue display
+        queue_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #666;'>No prompts loaded. Use the Main Controls tab to fetch prompts.</div>")
+        
+        # Additional info
+        gr.HTML("<small><strong>Tips:</strong> Images are displayed at medium size for easy viewing. " +
+               "Click any image to open the full-size version in a new tab. " +
+               "Used prompts are grayed out, pending prompts are highlighted in blue.</small>")
+    
+    # Return the UI components that need to be referenced later
+    return {
+        'queue_info': queue_info,
+        'refresh_queue_btn': refresh_queue_btn,
+        'fetch_more_btn': fetch_more_btn,
+        'clear_queue_btn': clear_queue_btn,
+        'reset_index_btn': reset_index_btn,
+        'queue_display': queue_display
+    }
+
 def on_ui_tabs():
     """Create the Civitai Randomizer tab"""
     global script_instance
@@ -625,160 +822,8 @@ def on_ui_tabs():
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
         with gr.Tabs():
-            with gr.TabItem("Main Controls"):
-                # API Status (key now in settings)
-                with gr.Row():
-                    test_api_btn = gr.Button("Test API", variant="secondary", size="sm", scale=1)
-                    api_status = gr.HTML("API key configured in Settings → Civitai Randomizer", scale=4)
-                
-                # Main Controls
-                with gr.Row():
-                    enable_randomizer = gr.Checkbox(
-                        label="Enable Civitai Randomizer",
-                        value=False,
-                        info="Automatically fetch new prompts for each generation"
-                    )
-                    bypass_prompts = gr.Checkbox(
-                        label="Bypass Prompt Fetching",
-                        value=False,
-                        info="Use only custom prompts and LORA randomization"
-                    )
-                
-                # Filtering Controls
-                with gr.Row():
-                    nsfw_filter = gr.Dropdown(
-                        label="NSFW Content Filter",
-                        choices=["Include All", "Exclude NSFW", "Only NSFW"],
-                        value="Include All",
-                        info="Filter content based on NSFW classification"
-                    )
-                    
-                # Prompt Filtering
-                with gr.Row():
-                    keyword_filter = gr.Textbox(
-                        label="Keyword Filter",
-                        placeholder="woman, portrait, anime, landscape",
-                        info="Comma-separated keywords (OR logic): only fetch prompts containing at least one of these words"
-                    )
-                    sort_method = gr.Dropdown(
-                        label="Sort Method",
-                        choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
-                        value="Most Reactions"
-                    )
-                
-                # Cache Management
-                with gr.Row():
-                    clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm", scale=1)
-                    cache_status = gr.HTML("Cached prompts: 0", scale=4)
-                
-                # Custom Prompt Management
-                with gr.Accordion("Custom Prompt Settings", open=False):
-                    with gr.Row():
-                        custom_prompt_start = gr.Textbox(
-                            label="Custom Prompt (Beginning)",
-                            placeholder="Text to add at the beginning of each prompt",
-                            lines=2
-                        )
-                    with gr.Row():
-                        custom_prompt_end = gr.Textbox(
-                            label="Custom Prompt (End)",
-                            placeholder="Text to add at the end of each prompt",
-                            lines=2
-                        )
-                
-                # LORA Management
-                with gr.Accordion("LORA Management", open=False):
-                    with gr.Row():
-                        enable_lora_randomizer = gr.Checkbox(
-                            label="Enable LORA Randomizer",
-                            value=False,
-                            info="Randomly select and apply LORAs"
-                        )
-                        refresh_loras_btn = gr.Button("Refresh LORA List", variant="secondary", size="sm")
-                    
-                    lora_selection = gr.CheckboxGroup(
-                        label="Available LORAs",
-                        choices=[],
-                        value=[],
-                        info="Select LORAs to include in randomization"
-                    )
-                    
-                    with gr.Row():
-                        lora_strength_min = gr.Slider(
-                            label="Min LORA Strength",
-                            minimum=0.1,
-                            maximum=2.0,
-                            value=0.5,
-                            step=0.1
-                        )
-                        lora_strength_max = gr.Slider(
-                            label="Max LORA Strength",
-                            minimum=0.1,
-                            maximum=2.0,
-                            value=1.0,
-                            step=0.1
-                        )
-                    
-                    max_loras_per_gen = gr.Slider(
-                        label="Max LORAs per Generation",
-                        minimum=1,
-                        maximum=5,
-                        value=2,
-                        step=1,
-                        info="Maximum number of LORAs to apply randomly"
-                    )
-                
-                # Main Action Buttons
-                with gr.Accordion("Prompt Population Controls", open=True):
-                    with gr.Row():
-                        fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg", scale=1)
-                        populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg", scale=1)
-                        generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg", scale=1)
-                    
-                    prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
-                    
-                    # Hidden textboxes to store current prompts for JavaScript access - this is the "bridge"
-                    hidden_positive_prompt = gr.Textbox(
-                        value="No prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
-                        visible=False, 
-                        elem_id="civitai_hidden_positive"
-                    )
-                    hidden_negative_prompt = gr.Textbox(
-                        value="No negative prompts fetched yet. Click 'Fetch New Prompts' to load prompts from Civitai.",
-                        visible=False,
-                        elem_id="civitai_hidden_negative"
-                    )
-                    
-                    with gr.Row():
-                        custom_negative_prompt = gr.Textbox(
-                            label="Custom Negative Prompt",
-                            placeholder="Text to add to negative prompts (optional)",
-                            lines=2,
-                            info="This will be combined with Civitai negative prompts"
-                        )
-            
-            with gr.TabItem("Prompt Queue"):
-                gr.HTML("<h3>📋 Prompt Queue Management</h3>")
-                gr.HTML("<p>View and manage your fetched prompts queue. Click on images to view full size.</p>")
-                
-                # Queue status and info
-                with gr.Row():
-                    queue_info = gr.HTML("Queue: 0 prompts available")
-                    refresh_queue_btn = gr.Button("🔄 Refresh", variant="secondary", size="sm", scale=1)
-                
-                # Queue management controls
-                with gr.Row():
-                    fetch_more_btn = gr.Button("🔄 Fetch More Prompts", variant="primary", size="sm")
-                    clear_queue_btn = gr.Button("🗑️ Clear Queue", variant="secondary", size="sm")
-                    reset_index_btn = gr.Button("⏪ Reset to Start", variant="secondary", size="sm")
-                
-                # Main queue display
-                queue_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #666;'>No prompts loaded. Use the Main Controls tab to fetch prompts.</div>")
-                
-                # Additional info
-                gr.HTML("<small><strong>Tips:</strong> Images are displayed at medium size for easy viewing. " +
-                       "Click any image to open the full-size version in a new tab. " +
-                       "Used prompts are grayed out, pending prompts are highlighted in blue.</small>")
+            main_controls_tab = _create_main_controls_tab()
+            queue_tab = _create_queue_tab()
         
         # Event handlers
         def test_api_connection():
@@ -1246,32 +1291,32 @@ def on_ui_tabs():
             return queue_status, queue_display_content
         
         # Bind events
-        test_api_btn.click(
+        main_controls_tab['test_api_btn'].click(
             test_api_connection,
-            outputs=[api_status]
+            outputs=[main_controls_tab['api_status']]
         )
         
-        refresh_loras_btn.click(
+        main_controls_tab['refresh_loras_btn'].click(
             refresh_lora_list,
-            outputs=[lora_selection]
+            outputs=[main_controls_tab['lora_selection']]
         )
         
-        clear_cache_btn.click(
+        main_controls_tab['clear_cache_btn'].click(
             clear_prompt_cache,
-            outputs=[cache_status, prompt_queue_status]
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status']]
         )
         
-        fetch_prompts_btn.click(
+        main_controls_tab['fetch_prompts_btn'].click(
             fetch_new_prompts,
-            inputs=[nsfw_filter, keyword_filter, sort_method],
-            outputs=[cache_status, prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt]
+            inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt']]
         )
         
         # Bind the populate button to update bridge textboxes and use JavaScript to populate main fields
-        populate_btn.click(
+        main_controls_tab['populate_btn'].click(
             get_prompts_and_update_queue,
-            inputs=[custom_prompt_start, custom_prompt_end, custom_negative_prompt],
-            outputs=[prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt, queue_info, queue_display],
+            inputs=[main_controls_tab['custom_prompt_start'], main_controls_tab['custom_prompt_end'], main_controls_tab['custom_negative_prompt']],
+            outputs=[main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']],
             _js="""
             function(custom_start, custom_end, custom_negative) {
                 console.log('[Civitai Randomizer] Populate button clicked with JS!');
@@ -1327,30 +1372,30 @@ def on_ui_tabs():
         )
         
         # Bind queue refresh button
-        refresh_queue_btn.click(
+        queue_tab['refresh_queue_btn'].click(
             refresh_queue_display,
-            outputs=[queue_info, queue_display]
+            outputs=[queue_tab['queue_info'], queue_tab['queue_display']]
         )
         
         # Bind queue management buttons
-        clear_queue_btn.click(
+        queue_tab['clear_queue_btn'].click(
             clear_and_update_queue,
-            outputs=[cache_status, prompt_queue_status, queue_info, queue_display]
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
         )
         
-        reset_index_btn.click(
+        queue_tab['reset_index_btn'].click(
             reset_queue_index,
-            outputs=[prompt_queue_status, queue_info, queue_display]
+            outputs=[main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
         )
         
-        fetch_more_btn.click(
+        queue_tab['fetch_more_btn'].click(
             fetch_more_from_queue,
-            outputs=[cache_status, prompt_queue_status, hidden_positive_prompt, hidden_negative_prompt, queue_info, queue_display]
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']]
         )
         
         # Initialize LORA list on load
         loras = script_instance.get_available_loras()
-        lora_selection.choices = loras
+        main_controls_tab['lora_selection'].choices = loras
         
         print(f"[Civitai Randomizer] ✅ Tab interface with subtabs created successfully")
     
