@@ -38,7 +38,6 @@ class CivitaiRandomizerScript(scripts.Script):
         self.last_nsfw_filter = "Include All"
         self.last_keyword_filter = ""
         self.last_sort_method = "Most Reactions"
-        self.current_page = 1  # Track current page for pagination
         self.last_next_page_url = None  # Store next page URL from API response
         
         # Remove problematic on_after_component calls for now
@@ -249,7 +248,7 @@ class CivitaiRandomizerScript(scripts.Script):
         except Exception as e:
             return f"<span style='color: red;'>✗ Unexpected error: {str(e)}</span>"
 
-    def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int, page: int = 1) -> tuple:
+    def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int, use_next_page_url: bool = False) -> tuple:
         """Setup headers and parameters for Civitai API request"""
         # Setup headers
         headers = {}
@@ -258,6 +257,11 @@ class CivitaiRandomizerScript(scripts.Script):
             print(f"[Debug] Using API key: {self.api_key[:8]}..." if len(self.api_key) > 8 else f"[Debug] Using API key: {self.api_key}")
         else:
             print(f"[Debug] No API key provided - making unauthenticated request")
+        
+        # For cursor-based pagination, if we have a nextPage URL, return it directly
+        if use_next_page_url and self.last_next_page_url:
+            print(f"[Pagination] Using cursor-based nextPage URL: {self.last_next_page_url[:100]}...")
+            return headers, None, self.last_next_page_url
         
         # Convert filter options to API parameters
         nsfw_param = None
@@ -277,8 +281,7 @@ class CivitaiRandomizerScript(scripts.Script):
         
         params = {
             'limit': limit,
-            'sort': sort_mapping.get(sort_method, "Most Reactions"),
-            'page': page
+            'sort': sort_mapping.get(sort_method, "Most Reactions")
         }
         
         if nsfw_param is not None:
@@ -288,85 +291,11 @@ class CivitaiRandomizerScript(scripts.Script):
         print(f"[Civitai API] Request params: {params}")
         print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API param: {nsfw_param} (type: {type(nsfw_param)})")
         
-        return headers, params
+        return headers, params, None
 
-    def _validate_api_response(self, response) -> dict:
-        """Validate and parse API response"""
-        # Debug response info
-        print(f"[Civitai API] Response status: {response.status_code}")
-        if 'X-RateLimit-Remaining' in response.headers:
-            print(f"[Civitai API] Rate limit remaining: {response.headers['X-RateLimit-Remaining']}")
-        
-        if response.status_code != 200:
-            print(f"Civitai API error: {response.status_code}")
-            print(f"Response content: {response.text[:500]}")
-            return {}
-        
-        # Parse JSON response
+    def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100, is_fetch_more: bool = False) -> List[str]:
+        """Fetch prompts from Civitai API using cursor-based pagination"""
         try:
-            data = response.json()
-            print(f"[Civitai API] JSON parsed successfully")
-            print(f"[Civitai API] JSON response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
-            return data
-        except (ValueError, requests.exceptions.JSONDecodeError) as e:
-            print(f"Failed to parse JSON response: {e}")
-            print(f"Response content: {response.text[:500]}")
-            return {}
-
-    def _create_prompt_pair(self, item: dict, meta: dict) -> dict:
-        """Create a comprehensive prompt pair from API item data"""
-        positive_prompt = meta.get('prompt', '')
-        negative_prompt = meta.get('negativePrompt', '')
-        
-        # Extract all available information
-        stats = item.get('stats', {})
-        
-        return {
-            'positive': self.clean_prompt(positive_prompt),
-            'negative': self.clean_prompt(negative_prompt) if negative_prompt else '',
-            'image_url': item.get('url', ''),
-            'image_width': item.get('width', 0),
-            'image_height': item.get('height', 0),
-            'nsfw': item.get('nsfw', False),
-            'nsfw_level': item.get('nsfwLevel', 'None'),
-            # Additional image metadata
-            'id': item.get('id', ''),
-            'hash': item.get('hash', ''),
-            'created_at': item.get('createdAt', ''),
-            'post_id': item.get('postId', ''),
-            'username': item.get('username', ''),
-            'base_model': item.get('baseModel', ''),
-            # Stats
-            'likes': stats.get('likeCount', 0),
-            'dislikes': stats.get('dislikeCount', 0), 
-            'laughs': stats.get('laughCount', 0),
-            'cries': stats.get('cryCount', 0),
-            'hearts': stats.get('heartCount', 0),
-            'comments': stats.get('commentCount', 0),
-            # Meta information (generation parameters)
-            'meta': meta,
-            'steps': meta.get('steps', ''),
-            'sampler': meta.get('sampler', ''),
-            'cfg_scale': meta.get('cfgScale', ''),
-            'seed': meta.get('seed', ''),
-            'model_name': meta.get('Model', ''),
-            'clip_skip': meta.get('clipSkip', ''),
-            'size': meta.get('Size', ''),
-            'model_hash': meta.get('Model hash', ''),
-            'vae': meta.get('VAE', ''),
-            'denoising_strength': meta.get('Denoising strength', ''),
-            'hires_upscaler': meta.get('Hires upscaler', ''),
-            'hires_steps': meta.get('Hires steps', ''),
-            'hires_upscale': meta.get('Hires upscale', ''),
-        }
-
-    def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100, page: int = None) -> List[str]:
-        """Fetch prompts from Civitai API"""
-        try:
-            # Handle pagination: if page is not specified, use current page for new fetches, or increment for "fetch more"
-            if page is None:
-                page = self.current_page
-            
             # Store last used settings for "Fetch More" functionality
             self.last_nsfw_filter = nsfw_filter
             self.last_keyword_filter = keyword_filter
@@ -377,20 +306,32 @@ class CivitaiRandomizerScript(scripts.Script):
             if self.api_key:
                 print(f"[Civitai API] API key length: {len(self.api_key)}")
             
-            print(f"[Pagination] Fetching page {page}")
-            headers, params = self._setup_api_request(nsfw_filter, sort_method, limit, page)
+            # For new fetches, reset the nextPage URL
+            if not is_fetch_more:
+                self.last_next_page_url = None
+                print(f"[Pagination] Starting fresh fetch - reset cursor")
+            else:
+                print(f"[Pagination] Fetching more using cursor-based pagination")
             
-            # Debug: Print request details
-            print(f"[Civitai API] Request URL: https://civitai.com/api/v1/images")
-            print(f"[Civitai API] Request params: {params}")
+            headers, params, next_page_url = self._setup_api_request(nsfw_filter, sort_method, limit, is_fetch_more)
+            
+            # Make the API request
+            if next_page_url:
+                # Use the full nextPage URL provided by Civitai
+                print(f"[Civitai API] Using nextPage URL: {next_page_url[:100]}...")
+                response = requests.get(next_page_url, headers=headers, timeout=30)
+            else:
+                # Use standard API endpoint with parameters
+                print(f"[Civitai API] Request URL: https://civitai.com/api/v1/images")
+                print(f"[Civitai API] Request params: {params}")
+                response = requests.get(
+                    'https://civitai.com/api/v1/images',
+                    headers=headers,
+                    params=params,
+                    timeout=30
+                )
+            
             print(f"[Civitai API] Headers present: {list(headers.keys())}")
-            
-            response = requests.get(
-                'https://civitai.com/api/v1/images',
-                headers=headers,
-                params=params,
-                timeout=30
-            )
             
             data = self._validate_api_response(response)
             
@@ -402,10 +343,16 @@ class CivitaiRandomizerScript(scripts.Script):
             # Extract pagination metadata
             metadata = data.get('metadata', {})
             if metadata:
+                # Update the nextPage URL for future "fetch more" requests
                 self.last_next_page_url = metadata.get('nextPage')
-                current_page_num = metadata.get('currentPage', page)
-                total_pages = metadata.get('totalPages', 'Unknown')
-                print(f"[Pagination] Current page: {current_page_num}/{total_pages}")
+                
+                # Log cursor information instead of page numbers
+                next_cursor = metadata.get('nextCursor')
+                current_page = metadata.get('currentPage', 'Unknown')
+                
+                print(f"[Pagination] Current page: {current_page}")
+                print(f"[Pagination] Next cursor: {next_cursor}")
+                
                 if self.last_next_page_url:
                     print(f"[Pagination] Next page URL available: {self.last_next_page_url[:100]}...")
                 else:
@@ -420,16 +367,10 @@ class CivitaiRandomizerScript(scripts.Script):
             if items and len(items) > 0:
                 print(f"[API Debug] Sample of first 3 items:")
                 for i, item in enumerate(items[:3]):
-                    print(f"[API Debug] === Item {i+1} Full Data ===")
-                    print(f"[API Debug] All keys: {list(item.keys()) if isinstance(item, dict) else 'Not a dict'}")
-                    print(f"[API Debug] Complete item: {item}")
-                    print(f"[API Debug] --- End Item {i+1} ---")
-                    
-                print(f"[NSFW Debug] NSFW status summary:")
-                for i, item in enumerate(items[:3]):
+                    item_id = item.get('id', 'No ID')
                     nsfw_status = item.get('nsfw', 'Unknown')
                     nsfw_level = item.get('nsfwLevel', 'Unknown')
-                    print(f"  Item {i+1}: nsfw={nsfw_status}, nsfwLevel={nsfw_level}")
+                    print(f"  Item {i+1}: ID={item_id}, nsfw={nsfw_status}, nsfwLevel={nsfw_level}")
             
             if not items:
                 print("No items found in Civitai API response")
@@ -441,11 +382,22 @@ class CivitaiRandomizerScript(scripts.Script):
             nsfw_count = 0
             total_processed = 0
             filtered_out_count = 0
+            duplicate_count = 0
+            
+            # Get existing image IDs for deduplication
+            existing_ids = {prompt_data.get('id') for prompt_data in self.prompt_queue if prompt_data.get('id')}
             
             for item in items:
                 # Skip None items
                 if not item or not isinstance(item, dict):
                     invalid_items += 1
+                    continue
+                
+                # Check for duplicates using image ID
+                item_id = item.get('id')
+                if item_id and item_id in existing_ids:
+                    duplicate_count += 1
+                    print(f"[Deduplication] Skipping duplicate item ID: {item_id}")
                     continue
                 
                 meta = item.get('meta', {})
@@ -481,6 +433,9 @@ class CivitaiRandomizerScript(scripts.Script):
                     if should_include:
                         self.prompt_queue.append(prompt_pair)
                         prompts.append(positive_prompt)  # Legacy compatibility
+                        # Add to existing_ids to prevent future duplicates
+                        if item_id:
+                            existing_ids.add(item_id)
                     else:
                         filtered_out_count += 1
             
@@ -488,10 +443,12 @@ class CivitaiRandomizerScript(scripts.Script):
             self.cached_prompts = list(set(self.cached_prompts))  # Remove duplicates
             
             print(f"Fetched {len(prompts)} new prompts from Civitai")
+            if duplicate_count > 0:
+                print(f"[Deduplication] Skipped {duplicate_count} duplicate items")
             if total_processed > 0:
                 nsfw_percentage = (nsfw_count/total_processed*100)
                 print(f"[NSFW Debug] Processed {total_processed} items, {nsfw_count} marked as NSFW ({nsfw_percentage:.1f}%)")
-                print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API parameter: {params.get('nsfw', 'None')}")
+                print(f"[NSFW Debug] Filter setting: '{nsfw_filter}'")
                 if nsfw_filter == "Only NSFW" and nsfw_count == 0:
                     print(f"[NSFW WARNING] Expected NSFW content but got 0 NSFW images!")
                     print(f"[NSFW DEBUG] SOLUTION STEPS:")
@@ -507,12 +464,9 @@ class CivitaiRandomizerScript(scripts.Script):
             if filtered_out_count > 0:
                 print(f"[NSFW Filter] Filtered out {filtered_out_count} items due to '{nsfw_filter}' setting")
             
-            # Update pagination state
-            if page == 1:
-                # Reset queue index when starting fresh (page 1)
-                if len(self.prompt_queue) > 0:
-                    self.queue_index = 0
-                self.current_page = 1
+            # Reset queue index when starting fresh (not fetch more)
+            if not is_fetch_more and len(self.prompt_queue) > 0:
+                self.queue_index = 0
             
             return prompts
             
@@ -928,6 +882,79 @@ class CivitaiRandomizerScript(scripts.Script):
         </div>
         """
 
+    def _validate_api_response(self, response) -> dict:
+        """Validate and parse the API response"""
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 401:
+            print(f"Authentication failed - check your API key")
+            return None
+        elif response.status_code == 403:
+            print(f"Access forbidden - API key may not have required permissions")
+            return None
+        elif response.status_code == 429:
+            print(f"Rate limited - please wait before making more requests")
+            return None
+        else:
+            print(f"API request failed with status code: {response.status_code}")
+            print(f"Response text: {response.text}")
+            return None
+
+    def _create_prompt_pair(self, item: dict, meta: dict) -> dict:
+        """Create a comprehensive prompt pair dictionary from API item and metadata"""
+        positive_prompt = meta.get('prompt', '')
+        negative_prompt = meta.get('negativePrompt', '')
+        
+        # Get image URL from the item itself (not meta)
+        image_url = item.get('url', '')
+        is_nsfw = item.get('nsfw', False)
+        nsfw_level = item.get('nsfwLevel', 'None')
+        
+        # Extract all available image information
+        stats = item.get('stats', {})
+        
+        # Create comprehensive prompt pair with all available info
+        prompt_pair = {
+            'positive': self.clean_prompt(positive_prompt),
+            'negative': self.clean_prompt(negative_prompt) if negative_prompt else '',
+            'image_url': image_url,
+            'image_width': item.get('width', 0),
+            'image_height': item.get('height', 0),
+            'nsfw': is_nsfw,
+            'nsfw_level': nsfw_level,
+            # Additional image metadata
+            'id': item.get('id', ''),
+            'hash': item.get('hash', ''),  # blurhash
+            'created_at': item.get('createdAt', ''),
+            'post_id': item.get('postId', ''),
+            'username': item.get('username', ''),
+            'base_model': item.get('baseModel', ''),
+            # Stats
+            'likes': stats.get('likeCount', 0),
+            'dislikes': stats.get('dislikeCount', 0), 
+            'laughs': stats.get('laughCount', 0),
+            'cries': stats.get('cryCount', 0),
+            'hearts': stats.get('heartCount', 0),
+            'comments': stats.get('commentCount', 0),
+            # Meta information (generation parameters)
+            'meta': meta,  # Store full meta for detailed display
+            'steps': meta.get('steps', ''),
+            'sampler': meta.get('sampler', ''),
+            'cfg_scale': meta.get('cfgScale', ''),
+            'seed': meta.get('seed', ''),
+            'model_name': meta.get('Model', ''),
+            'clip_skip': meta.get('clipSkip', ''),
+            'size': meta.get('Size', ''),
+            'model_hash': meta.get('Model hash', ''),
+            'vae': meta.get('VAE', ''),
+            'denoising_strength': meta.get('Denoising strength', ''),
+            'hires_upscaler': meta.get('Hires upscaler', ''),
+            'hires_steps': meta.get('Hires steps', ''),
+            'hires_upscale': meta.get('Hires upscale', ''),
+        }
+        
+        return prompt_pair
+
 # Global reference to the script instance for tab access
 script_instance = None
 
@@ -1129,7 +1156,7 @@ def _create_queue_tab():
     }
 
 def _create_event_handlers():
-    """Create all event handler functions for the UI"""
+    """Create event handlers for the UI components"""
     
     def test_api_connection():
         import modules.shared as shared
@@ -1163,22 +1190,39 @@ def _create_event_handlers():
         return status_msg, queue_info, queue_display
     
     def fetch_more_from_queue():
-        """Fetch more prompts using the same settings as last fetch"""
+        """Fetch more prompts using cursor-based pagination"""
         import modules.shared as shared
         api_key = getattr(shared.opts, 'civitai_api_key', '')
         script_instance.api_key = api_key
         
-        # Increment page for pagination
-        script_instance.current_page += 1
-        next_page = script_instance.current_page
+        # Check if we have a next page URL available
+        if not script_instance.last_next_page_url:
+            print("[Fetch More] No more pages available from Civitai API")
+            status_html = f"❌ No more pages available"
+            queue_html = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
+            queue_info, queue_display = refresh_queue_display()
+            
+            # Get current prompts for hidden textboxes
+            current_pos = ""
+            current_neg = ""
+            if script_instance.prompt_queue:
+                first_pair = script_instance.prompt_queue[0] if len(script_instance.prompt_queue) > 0 else None
+                if first_pair:
+                    current_pos = first_pair['positive']
+                    current_neg = first_pair['negative']
+            
+            return status_html, queue_html, current_pos, current_neg, queue_info, queue_display
         
-        # Use last used filter settings with next page
-        print(f"[Fetch More] Using last settings: NSFW={script_instance.last_nsfw_filter}, keyword='{script_instance.last_keyword_filter}', sort={script_instance.last_sort_method}, page={next_page}")
+        # Use cursor-based pagination instead of incrementing page numbers
+        print(f"[Fetch More] Using cursor-based pagination with nextPage URL")
+        print(f"[Fetch More] Using last settings: NSFW={script_instance.last_nsfw_filter}, keyword='{script_instance.last_keyword_filter}', sort={script_instance.last_sort_method}")
+        
         prompts = script_instance.fetch_civitai_prompts(
             script_instance.last_nsfw_filter, 
             script_instance.last_keyword_filter, 
             script_instance.last_sort_method,
-            page=next_page
+            limit=100,
+            is_fetch_more=True  # This tells the method to use cursor pagination
         )
         
         # Update all displays
@@ -1202,9 +1246,9 @@ def _create_event_handlers():
         api_key = getattr(shared.opts, 'civitai_api_key', '')
         script_instance.api_key = api_key
         
-        # Reset pagination when fetching new prompts
-        script_instance.current_page = 1
-        prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method, page=1)
+        # Reset cursor-based pagination when fetching new prompts
+        script_instance.last_next_page_url = None
+        prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method, limit=100, is_fetch_more=False)
         
         status_html = f"Cached prompts: {len(script_instance.cached_prompts)}"
         queue_html = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
