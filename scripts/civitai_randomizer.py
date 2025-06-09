@@ -691,6 +691,7 @@ class CivitaiRandomizerScript(scripts.Script):
             print(f"[Civitai API] Request URL: https://civitai.com/api/v1/images")
             print(f"[Civitai API] Request params: {params}")
             print(f"[Civitai API] Headers present: {list(headers.keys())}")
+            print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API param: {nsfw_param} (type: {type(nsfw_param)})")
             
             response = requests.get(
                 'https://civitai.com/api/v1/images',
@@ -726,6 +727,14 @@ class CivitaiRandomizerScript(scripts.Script):
             items = data.get('items', [])
             
             print(f"API response received - Total items: {len(items) if items else 0}")
+            
+            # Debug: Show sample of first few items to check NSFW status
+            if items and len(items) > 0:
+                print(f"[NSFW Debug] Sample of first 3 items NSFW status:")
+                for i, item in enumerate(items[:3]):
+                    nsfw_status = item.get('nsfw', 'Unknown')
+                    nsfw_level = item.get('nsfwLevel', 'Unknown')
+                    print(f"  Item {i+1}: nsfw={nsfw_status}, nsfwLevel={nsfw_level}")
             
             if not items:
                 print("No items found in Civitai API response")
@@ -821,8 +830,15 @@ class CivitaiRandomizerScript(scripts.Script):
             self.cached_prompts = list(set(self.cached_prompts))  # Remove duplicates
             
             print(f"Fetched {len(prompts)} new prompts from Civitai")
-            print(f"[Debug] Processed {total_processed} items, {nsfw_count} marked as NSFW ({(nsfw_count/total_processed*100):.1f}%)" if total_processed > 0 else "")
-            print(f"[Debug] NSFW filter setting: '{nsfw_filter}', API parameter: {nsfw_param}")
+            if total_processed > 0:
+                nsfw_percentage = (nsfw_count/total_processed*100)
+                print(f"[NSFW Debug] Processed {total_processed} items, {nsfw_count} marked as NSFW ({nsfw_percentage:.1f}%)")
+                print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API parameter: {nsfw_param}")
+                if nsfw_filter == "Only NSFW" and nsfw_count == 0:
+                    print(f"[NSFW WARNING] Expected NSFW content but got 0 NSFW images! This might indicate:")
+                    print(f"  - API key lacks NSFW permissions")
+                    print(f"  - No NSFW content available with current filters")
+                    print(f"  - API parameter format issue")
             if invalid_items > 0 or invalid_meta > 0:
                 print(f"Skipped {invalid_items} invalid items and {invalid_meta} items with no metadata")
             
