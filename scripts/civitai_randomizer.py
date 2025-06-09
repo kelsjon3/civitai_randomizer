@@ -1831,13 +1831,158 @@ script_instance = None
 
 def _create_main_controls_tab():
     """Create the main controls tab UI components"""
-    # Implementation placeholder - this would contain the full main controls tab
-    pass
+    with gr.TabItem("Main Controls"):
+        gr.HTML("<h3>🎲 Random Prompt Generation</h3>")
+        gr.HTML("<p>Fetch prompts from Civitai and manage your prompt queue</p>")
+        
+        # API Configuration Section
+        with gr.Group():
+            gr.HTML("<h4>🔑 API Configuration</h4>")
+            with gr.Row():
+                test_api_btn = gr.Button("🔗 Test API Connection", variant="secondary")
+                api_status = gr.HTML("Click to test API connection")
+        
+        # Fetch Controls Section
+        with gr.Group():
+            gr.HTML("<h4>📥 Fetch Prompts from Civitai</h4>")
+            with gr.Row():
+                nsfw_filter = gr.Radio(
+                    choices=["Include All", "Exclude NSFW", "Only NSFW"],
+                    value="Include All",
+                    label="NSFW Filter"
+                )
+                sort_method = gr.Radio(
+                    choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
+                    value="Most Reactions",
+                    label="Sort Method"
+                )
+            
+            keyword_filter = gr.Textbox(
+                placeholder="Enter keywords (comma-separated, optional)",
+                label="Keyword Filter",
+                lines=1
+            )
+            
+            with gr.Row():
+                fetch_prompts_btn = gr.Button("📥 Fetch New Prompts", variant="primary")
+                clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary")
+        
+        # Custom Prompt Controls
+        with gr.Group():
+            gr.HTML("<h4>✏️ Custom Prompt Settings</h4>")
+            custom_prompt_start = gr.Textbox(
+                placeholder="Text to add at the beginning of each prompt",
+                label="Custom Start Text",
+                lines=2
+            )
+            
+            custom_prompt_end = gr.Textbox(
+                placeholder="Text to add at the end of each prompt",
+                label="Custom End Text",
+                lines=2
+            )
+            
+            custom_negative_prompt = gr.Textbox(
+                placeholder="Custom negative prompt to add",
+                label="Custom Negative Prompt",
+                lines=2
+            )
+        
+        # Generate Controls
+        with gr.Group():
+            gr.HTML("<h4>🎯 Generate Prompts</h4>")
+            with gr.Row():
+                populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
+            
+            # Status displays
+            cache_status = gr.HTML("Cache: No prompts loaded")
+            prompt_queue_status = gr.HTML("Queue: No prompts available")
+        
+        # Hidden bridge textboxes for JavaScript communication
+        with gr.Group(visible=False):
+            hidden_positive_prompt = gr.Textbox(elem_id="civitai_hidden_positive", label="Hidden Positive")
+            hidden_negative_prompt = gr.Textbox(elem_id="civitai_hidden_negative", label="Hidden Negative")
+        
+        # Lora Availability Section
+        with gr.Group():
+            gr.HTML("<h4>🎯 Lora Availability Checker</h4>")
+            gr.HTML("<p>Scan and manage your local Lora files for availability checking</p>")
+            
+            with gr.Row():
+                scan_loras_btn = gr.Button("🔍 Scan Loras", variant="secondary")
+                force_rescan_btn = gr.Button("🔄 Force Rescan", variant="secondary")
+                clear_lora_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary")
+            
+            lora_scan_status = gr.HTML("Lora database: Not scanned")
+        
+        # LORA Randomizer Section (kept for compatibility)
+        with gr.Group():
+            gr.HTML("<h4>🎨 LORA Randomizer (Legacy)</h4>")
+            with gr.Row():
+                refresh_loras_btn = gr.Button("🔄 Refresh LORA List", variant="secondary")
+            
+            lora_selection = gr.CheckboxGroup(
+                choices=["Loading..."],
+                label="Select LORAs to Randomize",
+                value=[]
+            )
+    
+    return {
+        'test_api_btn': test_api_btn,
+        'api_status': api_status,
+        'nsfw_filter': nsfw_filter,
+        'sort_method': sort_method,
+        'keyword_filter': keyword_filter,
+        'fetch_prompts_btn': fetch_prompts_btn,
+        'clear_cache_btn': clear_cache_btn,
+        'custom_prompt_start': custom_prompt_start,
+        'custom_prompt_end': custom_prompt_end,
+        'custom_negative_prompt': custom_negative_prompt,
+        'populate_btn': populate_btn,
+        'cache_status': cache_status,
+        'prompt_queue_status': prompt_queue_status,
+        'hidden_positive_prompt': hidden_positive_prompt,
+        'hidden_negative_prompt': hidden_negative_prompt,
+        'scan_loras_btn': scan_loras_btn,
+        'force_rescan_btn': force_rescan_btn,
+        'clear_lora_cache_btn': clear_lora_cache_btn,
+        'lora_scan_status': lora_scan_status,
+        'refresh_loras_btn': refresh_loras_btn,
+        'lora_selection': lora_selection
+    }
 
 def _create_queue_tab():
     """Create the queue tab UI components"""
-    # Implementation placeholder - this would contain the full queue tab
-    pass
+    with gr.TabItem("Prompt Queue"):
+        gr.HTML("<h3>📋 Prompt Queue Management</h3>")
+        gr.HTML("<p>Browse and manage your fetched prompts with detailed metadata and Lora availability</p>")
+        
+        # Queue controls
+        with gr.Row():
+            refresh_queue_btn = gr.Button("🔄 Refresh Queue", variant="secondary")
+            fetch_more_btn = gr.Button("📥 Fetch More", variant="primary")
+            reset_index_btn = gr.Button("↺ Reset Index", variant="secondary")
+            clear_queue_btn = gr.Button("🗑️ Clear Queue", variant="stop")
+        
+        # Queue information
+        queue_info = gr.HTML("Queue: No prompts loaded")
+        
+        # Queue display
+        with gr.Group():
+            gr.HTML("<h4>📜 Queue Contents</h4>")
+            queue_display = gr.HTML(
+                value="<div style='padding: 20px; text-align: center; color: #888;'>No prompts in queue. Fetch some prompts to get started!</div>",
+                elem_id="civitai_queue_display"
+            )
+    
+    return {
+        'refresh_queue_btn': refresh_queue_btn,
+        'fetch_more_btn': fetch_more_btn,
+        'reset_index_btn': reset_index_btn,
+        'clear_queue_btn': clear_queue_btn,
+        'queue_info': queue_info,
+        'queue_display': queue_display
+    }
 
 def _create_lora_management_tab():
     """Create the Lora management tab UI components"""
@@ -2008,6 +2153,146 @@ def _create_event_handlers():
         except Exception as e:
             return f"<div style='color: #ff6b6b;'>Error loading Loras: {str(e)}</div>"
     
+    # Main Controls Event Handlers
+    def clear_prompt_cache():
+        """Clear the prompt cache"""
+        script_instance.cached_prompts = []
+        script_instance.prompt_queue = []
+        script_instance.queue_index = 0
+        cache_status = "Cache: Cleared"
+        queue_status = "Queue: Empty"
+        return cache_status, queue_status
+    
+    def fetch_new_prompts(nsfw_filter, keyword_filter, sort_method):
+        """Fetch new prompts from Civitai"""
+        try:
+            prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method, limit=100, is_fetch_more=False)
+            cache_status = f"Cache: {len(script_instance.cached_prompts)} prompts loaded"
+            queue_status = f"Queue: {len(script_instance.prompt_queue)} prompts, index: {script_instance.queue_index}"
+            return cache_status, queue_status, "", ""
+        except Exception as e:
+            error_msg = f"Error fetching prompts: {str(e)}"
+            return error_msg, "Queue: Error", "", ""
+    
+    def get_prompts_and_update_queue(custom_start, custom_end, custom_negative):
+        """Generate prompts and update queue display"""
+        try:
+            status_msg, positive, negative = script_instance.generate_prompts_with_outputs(custom_start, custom_end, custom_negative)
+            
+            # Update queue display
+            queue_status, queue_display_content = refresh_queue_display()
+            
+            return status_msg, positive, negative, queue_status, queue_display_content
+        except Exception as e:
+            error_msg = f"Error generating prompts: {str(e)}"
+            return error_msg, "", "", "Queue: Error", "Error loading queue"
+    
+    # Queue Event Handlers
+    def refresh_queue_display():
+        """Refresh the queue display"""
+        try:
+            queue_length = len(script_instance.prompt_queue)
+            current_index = script_instance.queue_index
+            
+            if queue_length == 0:
+                queue_status = "Queue: Empty"
+                queue_display_content = "<div style='padding: 20px; text-align: center; color: #888;'>No prompts in queue. Fetch some prompts to get started!</div>"
+                return queue_status, queue_display_content
+            
+            remaining = queue_length - current_index
+            queue_status = f"Queue: {queue_length} total, {remaining} remaining (index: {current_index + 1})"
+            
+            # Generate display for first few items
+            display_items = []
+            max_display = min(5, queue_length)  # Show max 5 items
+            
+            for i in range(max_display):
+                prompt_data = script_instance.prompt_queue[i]
+                
+                # Generate all the formatting data
+                image_html = script_instance.generate_image_html(prompt_data)
+                basic_image_info = script_instance.format_prompt_metadata(prompt_data)
+                indicators = script_instance.format_nsfw_indicators(prompt_data)
+                
+                image_metadata, content_info, core_params, advanced_params, hires_params, extra_params, lora_info = script_instance.extract_generation_parameters(prompt_data)
+                
+                # Format prompts for display
+                positive_text = prompt_data.get('positive', '')
+                negative_text = prompt_data.get('negative', '')
+                
+                positive_preview = positive_text[:200] + '...' if len(positive_text) > 200 else positive_text
+                negative_preview = negative_text[:100] + '...' if len(negative_text) > 100 else (negative_text if negative_text else "(No negative prompt)")
+                
+                # Format the complete item
+                item_html = script_instance.format_queue_item_html(
+                    i, prompt_data, current_index, image_html, basic_image_info,
+                    image_metadata, content_info, core_params, advanced_params,
+                    hires_params, extra_params, lora_info, indicators,
+                    positive_preview, negative_preview, negative_text
+                )
+                
+                display_items.append(item_html)
+            
+            # Add "show more" message if there are more items
+            if queue_length > max_display:
+                remaining_count = queue_length - max_display
+                display_items.append(f"""
+                <div style='padding: 15px; text-align: center; color: #888; border: 1px dashed #444; border-radius: 8px; margin-top: 10px;'>
+                    ... and {remaining_count} more items in queue
+                </div>
+                """)
+            
+            queue_display_content = ''.join(display_items)
+            
+            return queue_status, queue_display_content
+            
+        except Exception as e:
+            print(f"[Queue Display] Error: {e}")
+            return f"Queue: Error - {str(e)}", "<div style='color: #ff6b6b;'>Error loading queue display</div>"
+    
+    def clear_and_update_queue():
+        """Clear queue and update displays"""
+        script_instance.cached_prompts = []
+        script_instance.prompt_queue = []
+        script_instance.queue_index = 0
+        
+        cache_status = "Cache: Cleared"
+        queue_status = "Queue: Empty"
+        queue_info = "Queue: Empty"
+        queue_display = "<div style='padding: 20px; text-align: center; color: #888;'>Queue cleared!</div>"
+        
+        return cache_status, queue_status, queue_info, queue_display
+    
+    def reset_queue_index():
+        """Reset queue index to beginning"""
+        script_instance.queue_index = 0
+        queue_status = f"Queue: {len(script_instance.prompt_queue)} total, {len(script_instance.prompt_queue)} remaining (index reset)"
+        queue_status_info, queue_display = refresh_queue_display()
+        return queue_status, queue_status_info, queue_display
+    
+    def fetch_more_from_queue():
+        """Fetch more prompts using last settings"""
+        try:
+            prompts = script_instance.fetch_civitai_prompts(
+                script_instance.last_nsfw_filter,
+                script_instance.last_keyword_filter,
+                script_instance.last_sort_method,
+                limit=100,
+                is_fetch_more=True
+            )
+            
+            cache_status = f"Cache: {len(script_instance.cached_prompts)} prompts loaded"
+            queue_status = f"Queue: {len(script_instance.prompt_queue)} prompts, index: {script_instance.queue_index}"
+            
+            # Update queue display
+            queue_status_info, queue_display = refresh_queue_display()
+            
+            return cache_status, queue_status, "", "", queue_status_info, queue_display
+            
+        except Exception as e:
+            error_msg = f"Error fetching more: {str(e)}"
+            return error_msg, "Queue: Error", "", "", "Queue: Error", "Error loading queue"
+    
     # Return all handlers as a dictionary
     return {
         'test_api_connection': test_api_connection,
@@ -2018,7 +2303,14 @@ def _create_event_handlers():
         'vacuum_database': vacuum_database,
         'get_database_stats': get_database_stats,
         'search_loras': search_loras,
-        'show_all_loras': show_all_loras
+        'show_all_loras': show_all_loras,
+        'clear_prompt_cache': clear_prompt_cache,
+        'fetch_new_prompts': fetch_new_prompts,
+        'get_prompts_and_update_queue': get_prompts_and_update_queue,
+        'refresh_queue_display': refresh_queue_display,
+        'clear_and_update_queue': clear_and_update_queue,
+        'reset_queue_index': reset_queue_index,
+        'fetch_more_from_queue': fetch_more_from_queue
     }
 
 def on_ui_tabs():
@@ -2035,13 +2327,131 @@ def on_ui_tabs():
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
         with gr.Tabs():
-            # For now, just create a simple Lora Database tab
+            # Create all three tabs
+            main_controls_tab = _create_main_controls_tab()
+            queue_tab = _create_queue_tab()
             lora_management_tab = _create_lora_management_tab()
         
         # Event handlers
         event_handlers = _create_event_handlers()
         
-        # Bind Lora management tab events
+        # Main Controls Tab Event Bindings
+        main_controls_tab['test_api_btn'].click(
+            event_handlers['test_api_connection'],
+            outputs=[main_controls_tab['api_status']]
+        )
+        
+        main_controls_tab['fetch_prompts_btn'].click(
+            event_handlers['fetch_new_prompts'],
+            inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt']]
+        )
+        
+        main_controls_tab['clear_cache_btn'].click(
+            event_handlers['clear_prompt_cache'],
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status']]
+        )
+        
+        main_controls_tab['populate_btn'].click(
+            event_handlers['get_prompts_and_update_queue'],
+            inputs=[main_controls_tab['custom_prompt_start'], main_controls_tab['custom_prompt_end'], main_controls_tab['custom_negative_prompt']],
+            outputs=[main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']],
+            _js="""
+            function(custom_start, custom_end, custom_negative) {
+                console.log('[Civitai Randomizer] Populate button clicked with JS!');
+                
+                // Give Python time to update the hidden textboxes
+                setTimeout(() => {
+                    // Read from hidden textboxes (the bridge)
+                    const hiddenPositive = document.querySelector('#civitai_hidden_positive textarea');
+                    const hiddenNegative = document.querySelector('#civitai_hidden_negative textarea');
+                    
+                    let positive_prompt = "Bridge not working!";
+                    let negative_prompt = "Bridge not working!";
+                    
+                    if (hiddenPositive) {
+                        positive_prompt = hiddenPositive.value;
+                        console.log('[Civitai Randomizer] Read from bridge - Positive:', positive_prompt.substring(0, 100) + '...');
+                    }
+                    if (hiddenNegative) {
+                        negative_prompt = hiddenNegative.value;
+                        console.log('[Civitai Randomizer] Read from bridge - Negative:', negative_prompt.substring(0, 50) + '...');
+                    }
+                    
+                    // Now populate main fields using the proven working approach
+                    let positiveField = document.querySelector('#txt2img_prompt textarea');
+                    let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
+                    
+                    if (!positiveField) {
+                        positiveField = document.querySelector('#img2img_prompt textarea');
+                    }
+                    if (!negativeField) {
+                        negativeField = document.querySelector('#img2img_neg_prompt textarea');
+                    }
+                    
+                    if (positiveField && negativeField) {
+                        positiveField.value = positive_prompt;
+                        negativeField.value = negative_prompt;
+                        
+                        ['input', 'change'].forEach(eventType => {
+                            positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                            negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
+                        });
+                        
+                        console.log('[Civitai Randomizer] ✅ Main fields populated via bridge!');
+                    } else {
+                        console.log('[Civitai Randomizer] ❌ Could not find main prompt fields');
+                    }
+                }, 500);
+                
+                return [custom_start, custom_end, custom_negative];
+            }
+            """
+        )
+        
+        # Lora controls
+        main_controls_tab['scan_loras_btn'].click(
+            event_handlers['scan_local_loras'],
+            outputs=[main_controls_tab['lora_scan_status']]
+        )
+        
+        main_controls_tab['force_rescan_btn'].click(
+            event_handlers['force_rescan_loras'],
+            outputs=[main_controls_tab['lora_scan_status']]
+        )
+        
+        main_controls_tab['clear_lora_cache_btn'].click(
+            event_handlers['clear_lora_cache'],
+            outputs=[main_controls_tab['lora_scan_status']]
+        )
+        
+        main_controls_tab['refresh_loras_btn'].click(
+            event_handlers['refresh_lora_list'],
+            outputs=[main_controls_tab['lora_selection']]
+        )
+        
+        # Queue Tab Event Bindings
+        queue_tab['refresh_queue_btn'].click(
+            event_handlers['refresh_queue_display'],
+            outputs=[queue_tab['queue_info'], queue_tab['queue_display']]
+        )
+        
+        queue_tab['fetch_more_btn'].click(
+            event_handlers['fetch_more_from_queue'],
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']]
+        )
+        
+        queue_tab['reset_index_btn'].click(
+            event_handlers['reset_queue_index'],
+            outputs=[main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
+        )
+        
+        queue_tab['clear_queue_btn'].click(
+            event_handlers['clear_and_update_queue'],
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
+        )
+        
+        # Lora Management Tab Event Bindings
         lora_management_tab['refresh_stats_btn'].click(
             event_handlers['get_database_stats'],
             outputs=[lora_management_tab['db_stats']]
@@ -2076,7 +2486,10 @@ def on_ui_tabs():
             event_handlers['show_all_loras'],
             outputs=[lora_management_tab['lora_display']]
         )
-
+        
+        # Initialize LORA list on load
+        loras = script_instance.get_available_loras()
+        main_controls_tab['lora_selection'].choices = loras
         
         print(f"[Civitai Randomizer] ✅ Tab interface with subtabs created successfully")
     
