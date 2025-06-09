@@ -38,6 +38,8 @@ class CivitaiRandomizerScript(scripts.Script):
         self.last_nsfw_filter = "Include All"
         self.last_keyword_filter = ""
         self.last_sort_method = "Most Reactions"
+        self.current_page = 1  # Track current page for pagination
+        self.last_next_page_url = None  # Store next page URL from API response
         
         # Remove problematic on_after_component calls for now
         # We'll try a different approach
@@ -247,7 +249,7 @@ class CivitaiRandomizerScript(scripts.Script):
         except Exception as e:
             return f"<span style='color: red;'>✗ Unexpected error: {str(e)}</span>"
 
-    def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int) -> tuple:
+    def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int, page: int = 1) -> tuple:
         """Setup headers and parameters for Civitai API request"""
         # Setup headers
         headers = {}
@@ -275,7 +277,8 @@ class CivitaiRandomizerScript(scripts.Script):
         
         params = {
             'limit': limit,
-            'sort': sort_mapping.get(sort_method, "Most Reactions")
+            'sort': sort_mapping.get(sort_method, "Most Reactions"),
+            'page': page
         }
         
         if nsfw_param is not None:
@@ -357,9 +360,13 @@ class CivitaiRandomizerScript(scripts.Script):
             'hires_upscale': meta.get('Hires upscale', ''),
         }
 
-    def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100) -> List[str]:
+    def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100, page: int = None) -> List[str]:
         """Fetch prompts from Civitai API"""
         try:
+            # Handle pagination: if page is not specified, use current page for new fetches, or increment for "fetch more"
+            if page is None:
+                page = self.current_page
+            
             # Store last used settings for "Fetch More" functionality
             self.last_nsfw_filter = nsfw_filter
             self.last_keyword_filter = keyword_filter
@@ -370,7 +377,8 @@ class CivitaiRandomizerScript(scripts.Script):
             if self.api_key:
                 print(f"[Civitai API] API key length: {len(self.api_key)}")
             
-            headers, params = self._setup_api_request(nsfw_filter, sort_method, limit)
+            print(f"[Pagination] Fetching page {page}")
+            headers, params = self._setup_api_request(nsfw_filter, sort_method, limit, page)
             
             # Debug: Print request details
             print(f"[Civitai API] Request URL: https://civitai.com/api/v1/images")
@@ -390,6 +398,18 @@ class CivitaiRandomizerScript(scripts.Script):
                 print("Invalid response format from Civitai API")
                 print(f"Response type: {type(data)}, content: {str(data)[:200]}")
                 return []
+            
+            # Extract pagination metadata
+            metadata = data.get('metadata', {})
+            if metadata:
+                self.last_next_page_url = metadata.get('nextPage')
+                current_page_num = metadata.get('currentPage', page)
+                total_pages = metadata.get('totalPages', 'Unknown')
+                print(f"[Pagination] Current page: {current_page_num}/{total_pages}")
+                if self.last_next_page_url:
+                    print(f"[Pagination] Next page URL available: {self.last_next_page_url[:100]}...")
+                else:
+                    print(f"[Pagination] No more pages available")
             
             prompts = []
             items = data.get('items', [])
@@ -487,9 +507,12 @@ class CivitaiRandomizerScript(scripts.Script):
             if filtered_out_count > 0:
                 print(f"[NSFW Filter] Filtered out {filtered_out_count} items due to '{nsfw_filter}' setting")
             
-            # Reset queue index when new prompts are added
-            if len(self.prompt_queue) > 0:
-                self.queue_index = 0
+            # Update pagination state
+            if page == 1:
+                # Reset queue index when starting fresh (page 1)
+                if len(self.prompt_queue) > 0:
+                    self.queue_index = 0
+                self.current_page = 1
             
             return prompts
             
@@ -1145,12 +1168,17 @@ def _create_event_handlers():
         api_key = getattr(shared.opts, 'civitai_api_key', '')
         script_instance.api_key = api_key
         
-        # Use last used filter settings
-        print(f"[Fetch More] Using last settings: NSFW={script_instance.last_nsfw_filter}, keyword='{script_instance.last_keyword_filter}', sort={script_instance.last_sort_method}")
+        # Increment page for pagination
+        script_instance.current_page += 1
+        next_page = script_instance.current_page
+        
+        # Use last used filter settings with next page
+        print(f"[Fetch More] Using last settings: NSFW={script_instance.last_nsfw_filter}, keyword='{script_instance.last_keyword_filter}', sort={script_instance.last_sort_method}, page={next_page}")
         prompts = script_instance.fetch_civitai_prompts(
             script_instance.last_nsfw_filter, 
             script_instance.last_keyword_filter, 
-            script_instance.last_sort_method
+            script_instance.last_sort_method,
+            page=next_page
         )
         
         # Update all displays
@@ -1173,7 +1201,10 @@ def _create_event_handlers():
         import modules.shared as shared
         api_key = getattr(shared.opts, 'civitai_api_key', '')
         script_instance.api_key = api_key
-        prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method)
+        
+        # Reset pagination when fetching new prompts
+        script_instance.current_page = 1
+        prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method, page=1)
         
         status_html = f"Cached prompts: {len(script_instance.cached_prompts)}"
         queue_html = f"Prompt queue: {len(script_instance.prompt_queue)} prompts available"
