@@ -107,18 +107,6 @@ class CivitaiRandomizerScript(scripts.Script):
                         info="Use only custom prompts and LORA randomization"
                     )
                 
-                # Core Functionality - API Key and Fetch (moved from Advanced section)
-                with gr.Row():
-                    api_key_input = gr.Textbox("", label="Civitai API Key", type="password", placeholder="Enter your Civitai API key")
-                    test_api_btn = gr.Button("Test API", variant="secondary", size="sm")
-                
-                with gr.Row():
-                    fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg")
-                    clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm")
-                
-                with gr.Row():
-                    cache_status = gr.HTML("Cached prompts: 0")
-                    
                 # Filtering Controls
                 with gr.Row():
                     nsfw_filter = gr.Dropdown(
@@ -140,6 +128,14 @@ class CivitaiRandomizerScript(scripts.Script):
                         choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
                         value="Most Reactions"
                     )
+                
+                # Core Action Buttons
+                with gr.Row():
+                    fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg")
+                    clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm")
+                
+                with gr.Row():
+                    cache_status = gr.HTML("Cached prompts: 0")
                 
                 # Custom Prompt Management
                 with gr.Accordion("Custom Prompt Settings", open=False):
@@ -202,7 +198,6 @@ class CivitaiRandomizerScript(scripts.Script):
                 with gr.Accordion("Prompt Population Controls", open=True):
                     with gr.Row():
                         populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
-                        test_bridge_btn = gr.Button("🧪 Test Bridge", variant="secondary", size="sm")
                     with gr.Row():
                         generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg")
                     
@@ -475,62 +470,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 )
                 print(f"[Civitai Randomizer] ✅ Populate button bound with bridge approach successfully")
                 
-                # Add test bridge button to verify hidden textbox bridge works
-                test_bridge_btn.click(
-                    lambda: "Testing bridge textboxes...",
-                    outputs=[prompt_queue_status],
-                    _js="""
-                    function() {
-                        console.log('[Civitai Randomizer] Test Bridge button clicked!');
-                        
-                        setTimeout(() => {
-                            // Read from hidden textboxes (the bridge)
-                            const hiddenPositive = document.querySelector('#civitai_hidden_positive textarea');
-                            const hiddenNegative = document.querySelector('#civitai_hidden_negative textarea');
-                            
-                            let positive_prompt = "Hidden textbox not found!";
-                            let negative_prompt = "Hidden textbox not found!";
-                            
-                            if (hiddenPositive) {
-                                positive_prompt = hiddenPositive.value;
-                                console.log('[Civitai Randomizer] Found hidden positive textbox, value:', positive_prompt.substring(0, 100) + '...');
-                            }
-                            if (hiddenNegative) {
-                                negative_prompt = hiddenNegative.value;
-                                console.log('[Civitai Randomizer] Found hidden negative textbox, value:', negative_prompt.substring(0, 50) + '...');
-                            }
-                            
-                            // Now populate main fields using the same working approach
-                            let positiveField = document.querySelector('#txt2img_prompt textarea');
-                            let negativeField = document.querySelector('#txt2img_neg_prompt textarea');
-                            
-                            if (!positiveField) {
-                                positiveField = document.querySelector('#img2img_prompt textarea');
-                            }
-                            if (!negativeField) {
-                                negativeField = document.querySelector('#img2img_neg_prompt textarea');
-                            }
-                            
-                            if (positiveField && negativeField) {
-                                positiveField.value = positive_prompt;
-                                negativeField.value = negative_prompt;
-                                
-                                ['input', 'change'].forEach(eventType => {
-                                    positiveField.dispatchEvent(new Event(eventType, {bubbles: true}));
-                                    negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
-                                });
-                                
-                                console.log('[Civitai Randomizer] ✅ Fields populated using bridge textboxes!');
-                            } else {
-                                console.log('[Civitai Randomizer] ❌ Could not find main prompt fields');
-                            }
-                        }, 200);
-                        
-                        return [];
-                    }
-                    """
-                )
-                print(f"[Civitai Randomizer] ✅ Test bridge button bound successfully")
+
                 
 
         
