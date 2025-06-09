@@ -893,8 +893,8 @@ def on_ui_tabs():
         
         # API Status (key now in settings)
         with gr.Row():
-            test_api_btn = gr.Button("Test API Connection", variant="secondary", size="sm")
-            api_status = gr.HTML("API key configured in Settings → Civitai Randomizer")
+            test_api_btn = gr.Button("Test API", variant="secondary", size="sm", scale=1)
+            api_status = gr.HTML("API key configured in Settings → Civitai Randomizer", scale=4)
         
         # Main Controls
         with gr.Row():
@@ -931,13 +931,10 @@ def on_ui_tabs():
                 value="Most Reactions"
             )
         
-        # Core Action Buttons
+        # Cache Management
         with gr.Row():
-            fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg")
-            clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm")
-        
-        with gr.Row():
-            cache_status = gr.HTML("Cached prompts: 0")
+            clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary", size="sm", scale=1)
+            cache_status = gr.HTML("Cached prompts: 0", scale=4)
         
         # Custom Prompt Management
         with gr.Accordion("Custom Prompt Settings", open=False):
@@ -999,9 +996,9 @@ def on_ui_tabs():
         # Main Action Buttons
         with gr.Accordion("Prompt Population Controls", open=True):
             with gr.Row():
-                populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
-            with gr.Row():
-                generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg")
+                fetch_prompts_btn = gr.Button("🔄 Fetch New Prompts", variant="primary", size="lg", scale=1)
+                populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg", scale=1)
+                generate_forever_btn = gr.Button("🔄 Generate Random Forever", variant="secondary", size="lg", scale=1)
             
             prompt_queue_status = gr.HTML("Prompt queue: 0 prompts available")
             
