@@ -802,17 +802,24 @@ class CivitaiRandomizerScript(scripts.Script):
             return {}
 
     def calculate_file_sha256(self, file_path: str) -> Optional[str]:
-        """Calculate SHA256 hash of a file"""
+        """Calculate SHA256 hash of a file with optimized chunk size for large files"""
         try:
             import hashlib
+            file_size = os.path.getsize(file_path)
+            
+            # Use larger chunks for better performance on large checkpoint files
+            # 1MB chunks are much more efficient than 4KB for multi-GB files
+            chunk_size = 1024 * 1024  # 1MB chunks
+            
             sha256_hash = hashlib.sha256()
             with open(file_path, "rb") as f:
                 # Read file in chunks to handle large files
-                for chunk in iter(lambda: f.read(4096), b""):
+                for chunk in iter(lambda: f.read(chunk_size), b""):
                     sha256_hash.update(chunk)
+            
             return sha256_hash.hexdigest().upper()  # Use uppercase for consistency
         except Exception as e:
-            print(f"[Lora Hash] Error calculating SHA256 for {file_path}: {e}")
+            print(f"[File Hash] Error calculating SHA256 for {file_path}: {e}")
             return None
 
     def load_lora_metadata(self, lora_file_path: str) -> Dict[str, Any]:
@@ -1116,6 +1123,17 @@ class CivitaiRandomizerScript(scripts.Script):
         for relative_path in files_to_process:
             file_info = discovered_files[relative_path]
             file_path = file_info['file_path']
+            file_size = file_info['file_size']
+            
+            # Format file size for display
+            if file_size > 1024**3:
+                size_str = f"{file_size / (1024**3):.1f} GB"
+            elif file_size > 1024**2:
+                size_str = f"{file_size / (1024**2):.1f} MB"
+            else:
+                size_str = f"{file_size / 1024:.1f} KB"
+            
+            print(f"[Checkpoint DB] Processing {processed_count + 1}/{len(files_to_process)}: {os.path.basename(file_path)} ({size_str})")
             
             try:
                 # Load metadata (checkpoints use the same .json format as loras)
@@ -1124,10 +1142,26 @@ class CivitaiRandomizerScript(scripts.Script):
                 if metadata:
                     metadata_count += 1
                 
-                # Calculate hash
-                file_hash = self.calculate_file_sha256(file_path)
-                if file_hash:
-                    hash_count += 1
+                # Calculate hash (this is the slow part for large files)
+                file_hash = None
+                
+                # Skip hash calculation for very large files (>4GB) to speed up scanning
+                # Hash calculation on 8GB files can take 5-10 minutes each
+                skip_hash_threshold = 4 * 1024 * 1024 * 1024  # 4GB
+                
+                if file_size > skip_hash_threshold and not force_refresh:
+                    print(f"[Checkpoint DB] Skipping hash calculation for large file {os.path.basename(file_path)} ({size_str}) - use 'Force Rescan' to include hashes")
+                else:
+                    print(f"[Checkpoint DB] Calculating SHA256 hash for {os.path.basename(file_path)}...")
+                    hash_start_time = time.time()
+                    file_hash = self.calculate_file_sha256(file_path)
+                    hash_duration = time.time() - hash_start_time
+                    
+                    if file_hash:
+                        hash_count += 1
+                        print(f"[Checkpoint DB] Hash calculated in {hash_duration:.1f}s: {file_hash[:16]}...")
+                    else:
+                        print(f"[Checkpoint DB] Failed to calculate hash")
                 
                 # Extract metadata fields
                 model_id = metadata.get('modelId', '') if metadata else ''
@@ -1155,13 +1189,16 @@ class CivitaiRandomizerScript(scripts.Script):
                     conn.commit()
                 
                 processed_count += 1
+                elapsed = time.time() - start_time
+                avg_time_per_file = elapsed / processed_count
+                remaining_files = len(files_to_process) - processed_count
+                estimated_remaining = avg_time_per_file * remaining_files
                 
-                # Progress logging
-                if processed_count % 5 == 0:  # More frequent progress for potentially fewer files
-                    print(f"[Checkpoint DB] Processed {processed_count}/{len(files_to_process)} files...")
+                print(f"[Checkpoint DB] ✅ Completed {processed_count}/{len(files_to_process)} files. ETA: {estimated_remaining/60:.1f} min")
                 
             except Exception as e:
                 print(f"[Checkpoint DB] Error processing {file_path}: {e}")
+                processed_count += 1  # Still count it as processed to maintain accurate progress
         
         # Record scan statistics
         scan_duration = time.time() - start_time
