@@ -4233,9 +4233,9 @@ def _create_event_handlers():
                 # Create page navigation with JavaScript functionality
                 page_buttons = []
                 
-                # Previous button (visual indicator)
+                # Previous button
                 if page > 1:
-                    page_buttons.append(f'<span style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">‹ Prev</span>')
+                    page_buttons.append(f'<button type="button" style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background=\'#666\'; this.style.borderColor=\'#888\';" onmouseout="this.style.background=\'#555\'; this.style.borderColor=\'#777\';" title="Click, then use Previous Page button above">‹ Prev</button>')
                 
                 # Page numbers - show more pages for better navigation
                 start_page = max(1, page - 3)
@@ -4243,26 +4243,26 @@ def _create_event_handlers():
                 
                 # First page + ellipsis if needed
                 if start_page > 1:
-                    page_buttons.append(f'<span style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">1</span>')
+                    page_buttons.append(f'<button type="button" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background=\'#666\'; this.style.borderColor=\'#888\';" onmouseout="this.style.background=\'#555\'; this.style.borderColor=\'#777\';" title="Enter 1 in Page field above and click Go">1</button>')
                     if start_page > 2:
                         page_buttons.append('<span style="margin: 0 5px; color: #888; font-weight: bold;">...</span>')
                 
                 # Page number buttons
                 for p in range(start_page, end_page + 1):
                     if p == page:
-                        page_buttons.append(f'<span style="padding: 5px 10px; margin: 0 2px; background: #007acc; color: white; border: 1px solid #0099ff; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,122,204,0.3); display: inline-block;">{p}</span>')
+                        page_buttons.append(f'<button type="button" style="padding: 5px 10px; margin: 0 2px; background: #007acc; color: white; border: 1px solid #0099ff; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,122,204,0.3); cursor: default;" title="Current page">{p}</button>')
                     else:
-                        page_buttons.append(f'<span style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">{p}</span>')
+                        page_buttons.append(f'<button type="button" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background=\'#666\'; this.style.borderColor=\'#888\';" onmouseout="this.style.background=\'#555\'; this.style.borderColor=\'#777\';" title="Enter {p} in Page field above and click Go">{p}</button>')
                 
                 # Last page + ellipsis if needed
                 if end_page < total_pages:
                     if end_page < total_pages - 1:
                         page_buttons.append('<span style="margin: 0 5px; color: #888; font-weight: bold;">...</span>')
-                    page_buttons.append(f'<span style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">{total_pages}</span>')
+                    page_buttons.append(f'<button type="button" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background=\'#666\'; this.style.borderColor=\'#888\';" onmouseout="this.style.background=\'#555\'; this.style.borderColor=\'#777\';" title="Enter {total_pages} in Page field above and click Go">{total_pages}</button>')
                 
-                # Next button (visual indicator)
+                # Next button
                 if page < total_pages:
-                    page_buttons.append(f'<span style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">Next ›</span>')
+                    page_buttons.append(f'<button type="button" style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background=\'#666\'; this.style.borderColor=\'#888\';" onmouseout="this.style.background=\'#555\'; this.style.borderColor=\'#777\';" title="Click, then use Next Page button above">Next ›</button>')
                 
                 pagination_html = ' '.join(page_buttons)
                 
@@ -4280,7 +4280,7 @@ def _create_event_handlers():
                         {pagination_html}
                     </div>
                     <div style='font-size: 12px; color: #666; margin-top: 10px;'>
-                        Use the Previous/Next Page buttons or Page input above to navigate
+                        💡 <strong>Navigation Tips:</strong> Hover over page numbers to see hints! Use the Previous/Next Page buttons above, or enter a page number and click Go.
                     </div>
                 </div>
                 """)
@@ -4321,7 +4321,7 @@ def _create_event_handlers():
                         Page <span style='color: #007acc; font-weight: bold;'>{page}</span> of <span style='color: #007acc; font-weight: bold;'>{total_pages}</span> — {end_index - start_index} items on this page
                     </div>
                     <div style='font-size: 12px; color: #666;'>
-                        Use the navigation controls above to browse between pages
+                        Hover over page numbers to see navigation hints • Use controls above to browse
                     </div>
                 </div>
                 """)
