@@ -1729,23 +1729,23 @@ class CivitaiRandomizerScript(scripts.Script):
                             </div>
                         </div>
                         
-                        {f"""
+                        {f'''
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Trigger Words:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
                                 {", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified"}
                             </div>
                         </div>
-                        """ if civitai_trigger_words else ""}
+                        ''' if civitai_trigger_words else ""}
                         
-                        {f"""
+                        {f'''
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Tags:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
                                 {", ".join([f'<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">{tag}</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags"}
                             </div>
                         </div>
-                        """ if civitai_tags else ""}
+                        ''' if civitai_tags else ""}
                     </div>
                 </div>
                 ''' if has_civitai else ''}
@@ -2275,23 +2275,23 @@ class CivitaiRandomizerScript(scripts.Script):
                             </div>
                         </div>
                         
-                        {f"""
+                        {f'''
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Trigger Words:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
                                 {", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified"}
                             </div>
                         </div>
-                        """ if civitai_trigger_words else ""}
+                        ''' if civitai_trigger_words else ""}
                         
-                        {f"""
+                        {f'''
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Tags:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
                                 {", ".join([f'<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">{tag}</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags"}
                             </div>
                         </div>
-                        """ if civitai_tags else ""}
+                        ''' if civitai_tags else ""}
                     </div>
                 </div>
                 ''' if has_civitai else ''}
