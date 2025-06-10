@@ -643,7 +643,7 @@ class CivitaiRandomizerScript(scripts.Script):
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Create loras table
+                # Create loras table with Civitai enrichment support
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS loras (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -662,6 +662,27 @@ class CivitaiRandomizerScript(scripts.Script):
                         activation_text TEXT,
                         sd_version TEXT,
                         base_model TEXT,
+                        -- Civitai enrichment fields
+                        civitai_model_id INTEGER,
+                        civitai_version_id INTEGER,
+                        civitai_model_name TEXT,
+                        civitai_model_description TEXT,
+                        civitai_creator_username TEXT,
+                        civitai_creator_image TEXT,
+                        civitai_download_count INTEGER,
+                        civitai_favorite_count INTEGER,
+                        civitai_comment_count INTEGER,
+                        civitai_rating_count INTEGER,
+                        civitai_rating_average REAL,
+                        civitai_thumbs_up INTEGER,
+                        civitai_thumbs_down INTEGER,
+                        civitai_tags_json TEXT,
+                        civitai_trigger_words_json TEXT,
+                        civitai_images_json TEXT,
+                        civitai_training_details_json TEXT,
+                        civitai_download_url TEXT,
+                        civitai_last_updated REAL,
+                        civitai_enriched_at REAL,
                         created_at REAL DEFAULT (datetime('now')),
                         updated_at REAL DEFAULT (datetime('now'))
                     )
@@ -672,8 +693,12 @@ class CivitaiRandomizerScript(scripts.Script):
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_name ON loras(name)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_filename ON loras(filename)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_modified_time ON loras(modified_time)')
+                # Civitai enrichment indexes
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_model_id ON loras(civitai_model_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_version_id ON loras(civitai_version_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_enriched_at ON loras(civitai_enriched_at)')
                 
-                # Create checkpoints table
+                # Create checkpoints table with Civitai enrichment support
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS checkpoints (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -691,6 +716,27 @@ class CivitaiRandomizerScript(scripts.Script):
                         description TEXT,
                         sd_version TEXT,
                         base_model TEXT,
+                        -- Civitai enrichment fields
+                        civitai_model_id INTEGER,
+                        civitai_version_id INTEGER,
+                        civitai_model_name TEXT,
+                        civitai_model_description TEXT,
+                        civitai_creator_username TEXT,
+                        civitai_creator_image TEXT,
+                        civitai_download_count INTEGER,
+                        civitai_favorite_count INTEGER,
+                        civitai_comment_count INTEGER,
+                        civitai_rating_count INTEGER,
+                        civitai_rating_average REAL,
+                        civitai_thumbs_up INTEGER,
+                        civitai_thumbs_down INTEGER,
+                        civitai_tags_json TEXT,
+                        civitai_trigger_words_json TEXT,
+                        civitai_images_json TEXT,
+                        civitai_training_details_json TEXT,
+                        civitai_download_url TEXT,
+                        civitai_last_updated REAL,
+                        civitai_enriched_at REAL,
                         created_at REAL DEFAULT (datetime('now')),
                         updated_at REAL DEFAULT (datetime('now'))
                     )
@@ -701,6 +747,10 @@ class CivitaiRandomizerScript(scripts.Script):
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_name ON checkpoints(name)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_filename ON checkpoints(filename)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_modified_time ON checkpoints(modified_time)')
+                # Civitai enrichment indexes
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_model_id ON checkpoints(civitai_model_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_version_id ON checkpoints(civitai_version_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_enriched_at ON checkpoints(civitai_enriched_at)')
                 
                 # Create scan_stats table for tracking scan progress
                 cursor.execute('''
@@ -1252,6 +1302,198 @@ class CivitaiRandomizerScript(scripts.Script):
         
         return legacy_cache
 
+    def lookup_civitai_model_by_hash(self, file_hash: str) -> Optional[Dict[str, Any]]:
+        """Look up model information from Civitai using SHA256 hash"""
+        if not file_hash:
+            return None
+            
+        try:
+            # Use the by-hash endpoint to get model version details
+            api_url = f"https://civitai.com/api/v1/model-versions/by-hash/{file_hash}"
+            
+            headers = {}
+            if self.api_key:
+                headers['Authorization'] = f'Bearer {self.api_key}'
+            
+            print(f"[Civitai API] Looking up model by hash: {file_hash[:16]}...")
+            response = requests.get(api_url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"[Civitai API] ✅ Found model: {data.get('model', {}).get('name', 'Unknown')}")
+                return data
+            elif response.status_code == 404:
+                print(f"[Civitai API] ❌ No model found for hash: {file_hash[:16]}")
+                return None
+            else:
+                print(f"[Civitai API] ⚠️ API error {response.status_code}: {response.text}")
+                return None
+                
+        except Exception as e:
+            print(f"[Civitai API] 💥 Error looking up hash {file_hash[:16]}: {e}")
+            return None
+
+    def extract_civitai_metadata(self, api_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract and normalize Civitai metadata from API response"""
+        try:
+            model_data = api_data.get('model', {})
+            version_data = api_data
+            
+            # Extract model-level information
+            extracted = {
+                'civitai_model_id': model_data.get('id'),
+                'civitai_version_id': version_data.get('id'),
+                'civitai_model_name': model_data.get('name', ''),
+                'civitai_model_description': model_data.get('description', ''),
+                'civitai_creator_username': model_data.get('creator', {}).get('username', ''),
+                'civitai_creator_image': model_data.get('creator', {}).get('image', ''),
+                
+                # Statistics
+                'civitai_download_count': version_data.get('stats', {}).get('downloadCount', 0),
+                'civitai_favorite_count': model_data.get('stats', {}).get('favoriteCount', 0),
+                'civitai_comment_count': model_data.get('stats', {}).get('commentCount', 0),
+                'civitai_rating_count': model_data.get('stats', {}).get('ratingCount', 0),
+                'civitai_rating_average': model_data.get('stats', {}).get('rating', 0.0),
+                'civitai_thumbs_up': model_data.get('stats', {}).get('thumbsUpCount', 0),
+                'civitai_thumbs_down': model_data.get('stats', {}).get('thumbsDownCount', 0),
+                
+                # Tags and trigger words
+                'civitai_tags_json': json.dumps(model_data.get('tags', [])),
+                'civitai_trigger_words_json': json.dumps(version_data.get('trainedWords', [])),
+                
+                # Images (first 5 images)
+                'civitai_images_json': json.dumps(version_data.get('images', [])[:5]),
+                
+                # Training details
+                'civitai_training_details_json': json.dumps({
+                    'base_model': version_data.get('baseModel', ''),
+                    'base_model_type': version_data.get('baseModelType', ''),
+                    'training_strength': version_data.get('trainingStrength'),
+                    'training_details': version_data.get('trainingDetails', {}),
+                    'description': version_data.get('description', ''),
+                    'published_at': version_data.get('publishedAt', ''),
+                    'updated_at': version_data.get('updatedAt', ''),
+                }),
+                
+                # Download information
+                'civitai_download_url': version_data.get('downloadUrl', ''),
+                'civitai_last_updated': time.time(),
+                'civitai_enriched_at': time.time()
+            }
+            
+            return extracted
+            
+        except Exception as e:
+            print(f"[Civitai Metadata] Error extracting metadata: {e}")
+            return {}
+
+    def enrich_models_with_civitai_data(self, table_name: str, file_hashes: List[str] = None, 
+                                       force_refresh: bool = False) -> Dict[str, Any]:
+        """Enrich models with Civitai data using their SHA256 hashes"""
+        try:
+            print(f"[Civitai Enrichment] Starting enrichment for {table_name} table...")
+            
+            # Get models that need enrichment
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                if file_hashes:
+                    # Enrich specific hashes
+                    placeholders = ','.join(['?' for _ in file_hashes])
+                    query = f'''
+                        SELECT id, filename, sha256, civitai_enriched_at 
+                        FROM {table_name} 
+                        WHERE sha256 IN ({placeholders}) AND sha256 IS NOT NULL AND sha256 != ""
+                    '''
+                    cursor.execute(query, file_hashes)
+                else:
+                    # Enrich all models without Civitai data or refresh old data
+                    if force_refresh:
+                        cursor.execute(f'''
+                            SELECT id, filename, sha256, civitai_enriched_at 
+                            FROM {table_name} 
+                            WHERE sha256 IS NOT NULL AND sha256 != ""
+                        ''')
+                    else:
+                        cursor.execute(f'''
+                            SELECT id, filename, sha256, civitai_enriched_at 
+                            FROM {table_name} 
+                            WHERE sha256 IS NOT NULL AND sha256 != ""
+                            AND (civitai_enriched_at IS NULL OR civitai_enriched_at < ?)
+                        ''', (time.time() - 7*24*3600,))  # Refresh weekly
+                
+                models_to_enrich = cursor.fetchall()
+            
+            if not models_to_enrich:
+                print(f"[Civitai Enrichment] No {table_name} models need enrichment")
+                return {'enriched': 0, 'errors': 0, 'skipped': 0}
+            
+            print(f"[Civitai Enrichment] Found {len(models_to_enrich)} {table_name} models to enrich")
+            
+            enriched_count = 0
+            error_count = 0
+            skipped_count = 0
+            
+            for i, model in enumerate(models_to_enrich):
+                model_id, filename, file_hash, last_enriched = model
+                
+                print(f"[Civitai Enrichment] Processing {i+1}/{len(models_to_enrich)}: {filename}")
+                
+                # Rate limiting - wait between API calls
+                if i > 0:
+                    time.sleep(1)  # 1 second between calls to be respectful
+                
+                # Look up model data
+                api_data = self.lookup_civitai_model_by_hash(file_hash)
+                
+                if api_data:
+                    # Extract metadata
+                    civitai_fields = self.extract_civitai_metadata(api_data)
+                    
+                    if civitai_fields:
+                        # Update database with Civitai data
+                        with self.get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            
+                            # Build update query dynamically
+                            field_names = list(civitai_fields.keys())
+                            set_clause = ', '.join([f'{field} = ?' for field in field_names])
+                            values = list(civitai_fields.values()) + [model_id]
+                            
+                            update_query = f'''
+                                UPDATE {table_name} 
+                                SET {set_clause}, updated_at = datetime('now')
+                                WHERE id = ?
+                            '''
+                            
+                            cursor.execute(update_query, values)
+                            conn.commit()
+                            
+                        enriched_count += 1
+                        print(f"[Civitai Enrichment] ✅ Enriched: {filename}")
+                    else:
+                        error_count += 1
+                        print(f"[Civitai Enrichment] ⚠️ Failed to extract metadata: {filename}")
+                else:
+                    skipped_count += 1
+                    print(f"[Civitai Enrichment] ⏭️ No Civitai data found: {filename}")
+            
+            print(f"[Civitai Enrichment] Completed for {table_name}:")
+            print(f"  ✅ Enriched: {enriched_count}")
+            print(f"  ⚠️ Errors: {error_count}")
+            print(f"  ⏭️ Skipped: {skipped_count}")
+            
+            return {
+                'enriched': enriched_count,
+                'errors': error_count,
+                'skipped': skipped_count,
+                'total_processed': len(models_to_enrich)
+            }
+            
+        except Exception as e:
+            print(f"[Civitai Enrichment] 💥 Error during enrichment: {e}")
+            return {'enriched': 0, 'errors': 1, 'skipped': 0}
+
     def search_checkpoints_db(self, name_query: str = "", hash_query: str = "", 
                              folder_query: str = "", has_metadata: bool = False, 
                              has_hash: bool = False, selected_folders: List[str] = None, 
@@ -1355,7 +1597,7 @@ class CivitaiRandomizerScript(scripts.Script):
             return []
 
     def format_checkpoint_database_display(self, checkpoints: List[Dict[str, Any]], query_info: str = "") -> str:
-        """Format Checkpoint database results for HTML display"""
+        """Format Checkpoint database results for HTML display with rich Civitai integration"""
         if not checkpoints:
             return """
             <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
@@ -1392,28 +1634,121 @@ class CivitaiRandomizerScript(scripts.Script):
             # Status indicators
             has_hash = bool(checkpoint.get('sha256'))
             has_metadata = bool(checkpoint.get('metadata_json'))
+            has_civitai = bool(checkpoint.get('civitai_enriched_at'))
             
             hash_indicator = "✅" if has_hash else "❌"
             metadata_indicator = "✅" if has_metadata else "❌"
+            civitai_indicator = "🌟" if has_civitai else "⭕"
             
             # Metadata info
             metadata = checkpoint.get('metadata', {})
             model_id = metadata.get('modelId', '')
             description = metadata.get('description', '')
             
+            # Civitai data
+            civitai_name = checkpoint.get('civitai_model_name', '')
+            civitai_description = checkpoint.get('civitai_model_description', '')
+            civitai_creator = checkpoint.get('civitai_creator_username', '')
+            civitai_downloads = checkpoint.get('civitai_download_count', 0)
+            civitai_rating = checkpoint.get('civitai_rating_average', 0.0)
+            civitai_rating_count = checkpoint.get('civitai_rating_count', 0)
+            civitai_tags = []
+            civitai_trigger_words = []
+            civitai_images = []
+            
+            # Parse JSON fields
+            try:
+                if checkpoint.get('civitai_tags_json'):
+                    civitai_tags = json.loads(checkpoint.get('civitai_tags_json', '[]'))
+                if checkpoint.get('civitai_trigger_words_json'):
+                    civitai_trigger_words = json.loads(checkpoint.get('civitai_trigger_words_json', '[]'))
+                if checkpoint.get('civitai_images_json'):
+                    civitai_images = json.loads(checkpoint.get('civitai_images_json', '[]'))
+            except:
+                pass
+            
+            # Generate Civitai images display
+            checkpoint_images_html = ""
+            if civitai_images:
+                # Show first 3 images in a row
+                image_items = []
+                for img in civitai_images[:3]:
+                    img_url = img.get('url', '')
+                    if img_url:
+                        image_items.append(f"""
+                        <img src="{img_url}" 
+                             style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; 
+                                    cursor: pointer; transition: transform 0.2s;"
+                             onclick="window.open('{img_url}', '_blank')"
+                             onmouseover="this.style.transform='scale(1.1)'"
+                             onmouseout="this.style.transform='scale(1)'"
+                             title="Click to view full size">
+                        """)
+                
+                if image_items:
+                    checkpoint_images_html = f"""
+                    <div style='margin-bottom: 8px;'>
+                        <div style='font-size: 11px; color: #9ca3af; margin-bottom: 4px;'><strong>🖼️ Civitai Images:</strong></div>
+                        <div style='display: flex; gap: 8px; flex-wrap: wrap;'>
+                            {''.join(image_items)}
+                        </div>
+                    </div>
+                    """
+            
             # Create Checkpoint item HTML
             checkpoint_item = f"""
-            <div style='margin-bottom: 15px; padding: 12px; border: 1px solid #444; border-radius: 8px; 
+            <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px; 
                        background: #2a2a2a; color: #fff;'>
                 
                 <!-- Header with filename and status -->
-                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
-                    <strong style='color: #60a5fa; font-size: 14px;'>{checkpoint.get('filename', 'Unknown')}</strong>
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
+                    <strong style='color: #60a5fa; font-size: 15px;'>{civitai_name if civitai_name else checkpoint.get('filename', 'Unknown')}</strong>
                     <div style='display: flex; gap: 8px; align-items: center;'>
                         <span style='font-size: 12px;'>{hash_indicator} Hash</span>
                         <span style='font-size: 12px;'>{metadata_indicator} Metadata</span>
+                        <span style='font-size: 12px;'>{civitai_indicator} Civitai</span>
                     </div>
                 </div>
+                
+                <!-- Civitai enriched content -->
+                {f'''
+                <div style='display: flex; gap: 15px; margin-bottom: 12px;'>
+                    <!-- Images column -->
+                    <div style='flex-shrink: 0;'>
+                        {checkpoint_images_html}
+                    </div>
+                    
+                    <!-- Info column -->
+                    <div style='flex: 1;'>
+                        <div style='margin-bottom: 8px;'>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>👤 Creator & Stats:</strong></div>
+                            <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151; line-height: 1.4;'>
+                                <strong>Creator:</strong> {civitai_creator if civitai_creator else "Unknown"}<br>
+                                <strong>Downloads:</strong> {civitai_downloads:,} | <strong>Rating:</strong> {"⭐" * int(civitai_rating)}{"☆" * (5-int(civitai_rating))} ({civitai_rating:.1f}/5, {civitai_rating_count} votes)<br>
+                                <strong>Description:</strong> {(civitai_description[:100] + "...") if len(civitai_description) > 100 else (civitai_description or "No description")}
+                            </div>
+                        </div>
+                        
+                        {f"""
+                        <div style='margin-bottom: 8px;'>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>🎯 Trigger Words:</strong></div>
+                            <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
+                                {", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified"}
+                            </div>
+                        </div>
+                        """ if civitai_trigger_words else ""}
+                        
+                        {f"""
+                        <div style='margin-bottom: 8px;'>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>🏷️ Tags:</strong></div>
+                            <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
+                                {", ".join([f'<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">{tag}</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags"}
+                            </div>
+                        </div>
+                        """ if civitai_tags else ""}
+                    </div>
+                </div>
+                ''' if has_civitai else ''}
                 
                 <!-- File info -->
                 <div style='font-size: 11px; color: #bbb; margin-bottom: 8px;'>
@@ -1808,7 +2143,7 @@ class CivitaiRandomizerScript(scripts.Script):
             return []
 
     def format_lora_database_display(self, loras: List[Dict[str, Any]], query_info: str = "") -> str:
-        """Format Lora database results for HTML display"""
+        """Format Lora database results for HTML display with rich Civitai integration"""
         if not loras:
             return """
             <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
@@ -1845,28 +2180,121 @@ class CivitaiRandomizerScript(scripts.Script):
             # Status indicators
             has_hash = bool(lora.get('sha256'))
             has_metadata = bool(lora.get('metadata_json'))
+            has_civitai = bool(lora.get('civitai_enriched_at'))
             
             hash_indicator = "✅" if has_hash else "❌"
             metadata_indicator = "✅" if has_metadata else "❌"
+            civitai_indicator = "🌟" if has_civitai else "⭕"
             
             # Metadata info
             metadata = lora.get('metadata', {})
             model_id = metadata.get('modelId', '')
             description = metadata.get('description', '')
             
+            # Civitai data
+            civitai_name = lora.get('civitai_model_name', '')
+            civitai_description = lora.get('civitai_model_description', '')
+            civitai_creator = lora.get('civitai_creator_username', '')
+            civitai_downloads = lora.get('civitai_download_count', 0)
+            civitai_rating = lora.get('civitai_rating_average', 0.0)
+            civitai_rating_count = lora.get('civitai_rating_count', 0)
+            civitai_tags = []
+            civitai_trigger_words = []
+            civitai_images = []
+            
+            # Parse JSON fields
+            try:
+                if lora.get('civitai_tags_json'):
+                    civitai_tags = json.loads(lora.get('civitai_tags_json', '[]'))
+                if lora.get('civitai_trigger_words_json'):
+                    civitai_trigger_words = json.loads(lora.get('civitai_trigger_words_json', '[]'))
+                if lora.get('civitai_images_json'):
+                    civitai_images = json.loads(lora.get('civitai_images_json', '[]'))
+            except:
+                pass
+            
+            # Generate Civitai images display
+            images_html = ""
+            if civitai_images:
+                # Show first 3 images in a row
+                image_items = []
+                for img in civitai_images[:3]:
+                    img_url = img.get('url', '')
+                    if img_url:
+                        image_items.append(f"""
+                        <img src="{img_url}" 
+                             style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; 
+                                    cursor: pointer; transition: transform 0.2s;"
+                             onclick="window.open('{img_url}', '_blank')"
+                             onmouseover="this.style.transform='scale(1.1)'"
+                             onmouseout="this.style.transform='scale(1)'"
+                             title="Click to view full size">
+                        """)
+                
+                if image_items:
+                    images_html = f"""
+                    <div style='margin-bottom: 8px;'>
+                        <div style='font-size: 11px; color: #9ca3af; margin-bottom: 4px;'><strong>🖼️ Civitai Images:</strong></div>
+                        <div style='display: flex; gap: 8px; flex-wrap: wrap;'>
+                            {''.join(image_items)}
+                        </div>
+                    </div>
+                    """
+
             # Create Lora item HTML
             lora_item = f"""
-            <div style='margin-bottom: 15px; padding: 12px; border: 1px solid #444; border-radius: 8px; 
+            <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px; 
                        background: #2a2a2a; color: #fff;'>
                 
                 <!-- Header with filename and status -->
-                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
-                    <strong style='color: #4ade80; font-size: 14px;'>{lora.get('filename', 'Unknown')}</strong>
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
+                    <strong style='color: #4ade80; font-size: 15px;'>{civitai_name if civitai_name else lora.get('filename', 'Unknown')}</strong>
                     <div style='display: flex; gap: 8px; align-items: center;'>
                         <span style='font-size: 12px;'>{hash_indicator} Hash</span>
                         <span style='font-size: 12px;'>{metadata_indicator} Metadata</span>
+                        <span style='font-size: 12px;'>{civitai_indicator} Civitai</span>
                     </div>
                 </div>
+                
+                <!-- Civitai enriched content -->
+                {f'''
+                <div style='display: flex; gap: 15px; margin-bottom: 12px;'>
+                    <!-- Images column -->
+                    <div style='flex-shrink: 0;'>
+                        {images_html}
+                    </div>
+                    
+                    <!-- Info column -->
+                    <div style='flex: 1;'>
+                        <div style='margin-bottom: 8px;'>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>👤 Creator & Stats:</strong></div>
+                            <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151; line-height: 1.4;'>
+                                <strong>Creator:</strong> {civitai_creator if civitai_creator else "Unknown"}<br>
+                                <strong>Downloads:</strong> {civitai_downloads:,} | <strong>Rating:</strong> {"⭐" * int(civitai_rating)}{"☆" * (5-int(civitai_rating))} ({civitai_rating:.1f}/5, {civitai_rating_count} votes)<br>
+                                <strong>Description:</strong> {(civitai_description[:100] + "...") if len(civitai_description) > 100 else (civitai_description or "No description")}
+                            </div>
+                        </div>
+                        
+                        {f"""
+                        <div style='margin-bottom: 8px;'>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>🎯 Trigger Words:</strong></div>
+                            <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
+                                {", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified"}
+                            </div>
+                        </div>
+                        """ if civitai_trigger_words else ""}
+                        
+                        {f"""
+                        <div style='margin-bottom: 8px;'>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>🏷️ Tags:</strong></div>
+                            <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
+                                {", ".join([f'<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">{tag}</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags"}
+                            </div>
+                        </div>
+                        """ if civitai_tags else ""}
+                    </div>
+                </div>
+                ''' if has_civitai else ''}
                 
                 <!-- File info -->
                 <div style='font-size: 11px; color: #bbb; margin-bottom: 8px;'>
@@ -2547,6 +2975,7 @@ def _create_checkpoint_management_tab():
         with gr.Row():
             checkpoint_scan_db_btn = gr.Button("🔍 Scan Checkpoints", variant="primary")
             checkpoint_force_scan_btn = gr.Button("🔄 Force Rescan", variant="secondary")
+            enrich_checkpoints_btn = gr.Button("🌟 Enrich with Civitai", variant="primary")
             checkpoint_clear_db_btn = gr.Button("🗑️ Clear Database", variant="stop")
             checkpoint_vacuum_db_btn = gr.Button("⚡ Optimize DB", variant="secondary")
         
@@ -2582,6 +3011,7 @@ def _create_checkpoint_management_tab():
         'checkpoint_refresh_stats_btn': checkpoint_refresh_stats_btn,
         'checkpoint_scan_db_btn': checkpoint_scan_db_btn,
         'checkpoint_force_scan_btn': checkpoint_force_scan_btn,
+        'enrich_checkpoints_btn': enrich_checkpoints_btn,
         'checkpoint_clear_db_btn': checkpoint_clear_db_btn,
         'checkpoint_vacuum_db_btn': checkpoint_vacuum_db_btn,
         'checkpoint_search_name': checkpoint_search_name,
@@ -2611,6 +3041,7 @@ def _create_lora_management_tab():
         with gr.Row():
             scan_db_btn = gr.Button("🔍 Scan Loras", variant="primary")
             force_scan_btn = gr.Button("🔄 Force Rescan", variant="secondary")
+            enrich_loras_btn = gr.Button("🌟 Enrich with Civitai", variant="primary")
             clear_db_btn = gr.Button("🗑️ Clear Database", variant="stop")
             vacuum_db_btn = gr.Button("⚡ Optimize DB", variant="secondary")
         
@@ -2646,6 +3077,7 @@ def _create_lora_management_tab():
         'refresh_stats_btn': refresh_stats_btn,
         'scan_db_btn': scan_db_btn,
         'force_scan_btn': force_scan_btn,
+        'enrich_loras_btn': enrich_loras_btn,
         'clear_db_btn': clear_db_btn,
         'vacuum_db_btn': vacuum_db_btn,
         'search_name': search_name,
@@ -3138,6 +3570,52 @@ def _create_event_handlers():
             print(f"Error refreshing checkpoint folder choices: {e}")
             return gr.CheckboxGroup.update(choices=[], value=[])
 
+    def enrich_loras_with_civitai():
+        """Enrich Loras with Civitai data"""
+        try:
+            print(f"[Civitai Enrichment] Starting Lora enrichment...")
+            results = script_instance.enrich_models_with_civitai_data('loras')
+            
+            if results['total_processed'] == 0:
+                return "🌟 No Loras found with hashes to enrich. Scan your Loras first!"
+            
+            enriched = results['enriched']
+            errors = results['errors']
+            skipped = results['skipped']
+            total = results['total_processed']
+            
+            status_msg = f"🌟 Civitai Enrichment Complete: {enriched}/{total} enriched, {skipped} skipped, {errors} errors"
+            print(f"[Civitai Enrichment] {status_msg}")
+            return status_msg
+            
+        except Exception as e:
+            error_msg = f"🌟 Civitai Enrichment Error: {str(e)}"
+            print(f"[Civitai Enrichment] {error_msg}")
+            return error_msg
+
+    def enrich_checkpoints_with_civitai():
+        """Enrich Checkpoints with Civitai data"""
+        try:
+            print(f"[Civitai Enrichment] Starting Checkpoint enrichment...")
+            results = script_instance.enrich_models_with_civitai_data('checkpoints')
+            
+            if results['total_processed'] == 0:
+                return "🌟 No Checkpoints found with hashes to enrich. Scan your Checkpoints first!"
+            
+            enriched = results['enriched']
+            errors = results['errors']
+            skipped = results['skipped']
+            total = results['total_processed']
+            
+            status_msg = f"🌟 Civitai Enrichment Complete: {enriched}/{total} enriched, {skipped} skipped, {errors} errors"
+            print(f"[Civitai Enrichment] {status_msg}")
+            return status_msg
+            
+        except Exception as e:
+            error_msg = f"🌟 Civitai Enrichment Error: {str(e)}"
+            print(f"[Civitai Enrichment] {error_msg}")
+            return error_msg
+
     # Main Controls Event Handlers
     def clear_prompt_cache():
         """Clear the prompt cache"""
@@ -3305,6 +3783,8 @@ def _create_event_handlers():
         'search_checkpoints_with_filters': search_checkpoints_with_filters,
         'show_all_checkpoints': show_all_checkpoints,
         'refresh_checkpoint_folder_choices': refresh_checkpoint_folder_choices,
+        'enrich_loras_with_civitai': enrich_loras_with_civitai,
+        'enrich_checkpoints_with_civitai': enrich_checkpoints_with_civitai,
         'fetch_new_prompts': fetch_new_prompts,
         'get_prompts_and_update_queue': get_prompts_and_update_queue,
         'refresh_queue_display': refresh_queue_display,
@@ -3478,6 +3958,11 @@ def on_ui_tabs():
             outputs=[checkpoint_management_tab['checkpoint_results_info']]
         )
         
+        checkpoint_management_tab['enrich_checkpoints_btn'].click(
+            event_handlers['enrich_checkpoints_with_civitai'],
+            outputs=[checkpoint_management_tab['checkpoint_results_info']]
+        )
+        
         checkpoint_management_tab['checkpoint_search_btn'].click(
             event_handlers['search_checkpoints_with_filters'],
             inputs=[checkpoint_management_tab['checkpoint_search_name'], checkpoint_management_tab['checkpoint_search_hash'], checkpoint_management_tab['checkpoint_search_folder'], checkpoint_management_tab['checkpoint_filter_has_metadata'], checkpoint_management_tab['checkpoint_filter_has_hash'], checkpoint_management_tab['checkpoint_folder_filter']],
@@ -3524,6 +4009,11 @@ def on_ui_tabs():
         
         lora_management_tab['vacuum_db_btn'].click(
             event_handlers['vacuum_database'],
+            outputs=[lora_management_tab['results_info']]
+        )
+        
+        lora_management_tab['enrich_loras_btn'].click(
+            event_handlers['enrich_loras_with_civitai'],
             outputs=[lora_management_tab['results_info']]
         )
         
