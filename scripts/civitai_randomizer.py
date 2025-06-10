@@ -398,7 +398,13 @@ class CivitaiRandomizerScript(scripts.Script):
                     item_id = item.get('id', 'No ID')
                     nsfw_status = item.get('nsfw', 'Unknown')
                     nsfw_level = item.get('nsfwLevel', 'Unknown')
+                    # Check for URL fields in the item
+                    url_fields = [k for k in item.keys() if 'url' in k.lower() or 'src' in k.lower() or 'image' in k.lower()]
                     print(f"  Item {i+1}: ID={item_id}, nsfw={nsfw_status}, nsfwLevel={nsfw_level}")
+                    print(f"  URL-related fields: {url_fields}")
+                    if url_fields:
+                        for field in url_fields[:3]:  # Show first 3 URL-related fields
+                            print(f"    {field}: {str(item.get(field, ''))[:50]}...")
             
             if not items:
                 print("No items found in Civitai API response")
@@ -2598,15 +2604,20 @@ class CivitaiRandomizerScript(scripts.Script):
                      onclick='window.open("{image_url}", "_blank")'
                      onmouseover='this.style.transform="scale(1.02)"'
                      onmouseout='this.style.transform="scale(1)"'
+                     onerror='this.style.display="none"; this.nextElementSibling.style.display="block";'
                      alt='Generated Image'
                      title='Click to view full size'>
+                <div style='display: none; padding: 20px; background: #3a2a2a; border-radius: 8px; color: #ff6b6b; border: 1px solid #644;'>
+                    <strong>IMG</strong><br>Failed to load image<br>
+                    <small style='color: #ccc; font-size: 10px;'>URL: {image_url[:50]}...</small>
+                </div>
             </div>
             """
         else:
             return """
             <div style='text-align: center; margin-bottom: 10px; padding: 40px; 
                        background: #2a2a2a; border-radius: 8px; color: #aaa; border: 1px solid #444;'>
-                <strong>IMG</strong><br>No image available
+                <strong>IMG</strong><br>No image URL provided
             </div>
             """
 
@@ -3117,7 +3128,16 @@ class CivitaiRandomizerScript(scripts.Script):
         negative_prompt = meta.get('negativePrompt', '')
         
         # Get image URL from the item itself (not meta)
+        # Debug: Check different possible URL fields in the API response
         image_url = item.get('url', '')
+        if not image_url:
+            # Try alternative URL field names that Civitai might use
+            image_url = item.get('imageUrl', '') or item.get('image_url', '') or item.get('src', '')
+        
+        # Debug logging for image URL extraction
+        print(f"[Image Debug] Item keys: {list(item.keys()) if item else 'None'}")
+        print(f"[Image Debug] Image URL found: {image_url[:100] if image_url else 'No URL'}")
+        
         is_nsfw = item.get('nsfw', False)
         nsfw_level = item.get('nsfwLevel', 'None')
         
@@ -3275,14 +3295,14 @@ def _create_search_tab():
                 post_id_filter = gr.Number(
                     placeholder="Enter Post ID (optional)",
                     label="Post ID",
-                    minimum=1,
+                    value=None,
                     precision=0,
                     scale=1
                 )
                 model_id_filter = gr.Number(
                     placeholder="Enter Model ID (optional)",
-                    label="Model ID", 
-                    minimum=1,
+                    label="Model ID",
+                    value=None,
                     precision=0,
                     scale=1
                 )
