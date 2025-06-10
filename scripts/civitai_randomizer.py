@@ -282,16 +282,11 @@ class CivitaiRandomizerScript(scripts.Script):
             nsfw_param = "X"
             print("[NSFW Debug] Using enum value 'X' to request NSFW content")
         
-        sort_mapping = {
-            "Most Reactions": "Most Reactions",
-            "Most Comments": "Most Comments", 
-            "Most Collected": "Most Collected",
-            "Newest": "Newest"
-        }
-        
+        # We'll determine the correct sort value based on which endpoint we use
+        # For now, just use the sort method as-is and we'll fix it in fetch_civitai_prompts
         params = {
             'limit': limit,
-            'sort': sort_mapping.get(sort_method, "Most Reactions")
+            'sort': sort_method
         }
         
         if nsfw_param is not None:
@@ -360,10 +355,34 @@ class CivitaiRandomizerScript(scripts.Script):
                     # Use models endpoint for text search
                     api_url = 'https://civitai.com/api/v1/models'
                     print(f"[Search] Using models endpoint for keyword search: '{keyword_filter.strip()}'")
+                    
+                    # Map sort values for models endpoint
+                    models_sort_mapping = {
+                        "Most Reactions": "Most Liked",  # Closest equivalent
+                        "Most Comments": "Most Discussed", 
+                        "Most Collected": "Most Collected",
+                        "Newest": "Newest"
+                    }
+                    
+                    original_sort = params['sort']
+                    params['sort'] = models_sort_mapping.get(original_sort, "Most Liked")
+                    print(f"[Sort Mapping] Images sort '{original_sort}' -> Models sort '{params['sort']}'")
                 else:
                     # Use images endpoint for non-search requests
                     api_url = 'https://civitai.com/api/v1/images'
                     print(f"[API] Using images endpoint for browsing")
+                    
+                    # Map sort values for images endpoint
+                    images_sort_mapping = {
+                        "Most Reactions": "Most Reactions",
+                        "Most Comments": "Most Comments", 
+                        "Most Collected": "Most Collected",
+                        "Newest": "Newest"
+                    }
+                    
+                    original_sort = params['sort']
+                    params['sort'] = images_sort_mapping.get(original_sort, "Most Reactions")
+                    print(f"[Sort Mapping] Using images sort: '{params['sort']}'")
                 
                 print(f"[Civitai API] Request URL: {api_url}")
                 print(f"[Civitai API] Request params: {params}")
