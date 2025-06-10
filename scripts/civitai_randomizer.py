@@ -255,7 +255,10 @@ class CivitaiRandomizerScript(scripts.Script):
         except Exception as e:
             return f"<span style='color: red;'>X Unexpected error: {str(e)}</span>"
 
-    def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int, use_next_page_url: bool = False) -> tuple:
+    def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int, 
+                          period_filter: str = "AllTime", username_filter: str = "", 
+                          post_id_filter: int = None, model_id_filter: int = None, 
+                          use_next_page_url: bool = False) -> tuple:
         """Setup headers and parameters for Civitai API request"""
         # Setup headers
         headers = {}
@@ -294,13 +297,29 @@ class CivitaiRandomizerScript(scripts.Script):
         if nsfw_param is not None:
             params['nsfw'] = nsfw_param
         
+        # Add new filter parameters
+        if period_filter and period_filter != "AllTime":
+            params['period'] = period_filter
+        
+        if username_filter and username_filter.strip():
+            params['username'] = username_filter.strip()
+        
+        if post_id_filter and post_id_filter > 0:
+            params['postId'] = int(post_id_filter)
+        
+        if model_id_filter and model_id_filter > 0:
+            params['modelId'] = int(model_id_filter)
+        
         # Debug output
         print(f"[Civitai API] Request params: {params}")
         print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API param: {nsfw_param} (type: {type(nsfw_param)})")
         
         return headers, params, None
 
-    def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, limit: int = 100, is_fetch_more: bool = False) -> List[str]:
+    def fetch_civitai_prompts(self, nsfw_filter: str, keyword_filter: str, sort_method: str, 
+                             period_filter: str = "AllTime", username_filter: str = "", 
+                             post_id_filter: int = None, model_id_filter: int = None,
+                             limit: int = 100, is_fetch_more: bool = False) -> List[str]:
         """Fetch prompts from Civitai API using cursor-based pagination"""
         try:
             # Store last used settings for "Fetch More" functionality
@@ -320,7 +339,9 @@ class CivitaiRandomizerScript(scripts.Script):
             else:
                 print(f"[Pagination] Fetching more using cursor-based pagination")
             
-            headers, params, next_page_url = self._setup_api_request(nsfw_filter, sort_method, limit, is_fetch_more)
+            headers, params, next_page_url = self._setup_api_request(nsfw_filter, sort_method, limit, 
+                                                                   period_filter, username_filter, 
+                                                                   post_id_filter, model_id_filter, is_fetch_more)
             
             # Make the API request
             if next_page_url:
@@ -3208,12 +3229,42 @@ def _create_search_tab():
                     value="Most Reactions",
                     label="Sort Method"
                 )
+                period_filter = gr.Radio(
+                    choices=["AllTime", "Year", "Month", "Week", "Day"],
+                    value="AllTime",
+                    label="Time Period"
+                )
             
-            keyword_filter = gr.Textbox(
-                placeholder="Enter keywords (comma-separated, optional)",
-                label="Keyword Filter",
-                lines=1
-            )
+            with gr.Row():
+                keyword_filter = gr.Textbox(
+                    placeholder="Enter keywords (comma-separated, optional)",
+                    label="Keyword Filter",
+                    lines=1,
+                    scale=2
+                )
+                username_filter = gr.Textbox(
+                    placeholder="Filter by username (optional)",
+                    label="Username Filter",
+                    lines=1,
+                    scale=2
+                )
+            
+            with gr.Row():
+                post_id_filter = gr.Number(
+                    placeholder="Enter Post ID (optional)",
+                    label="Post ID",
+                    minimum=1,
+                    precision=0,
+                    scale=1
+                )
+                model_id_filter = gr.Number(
+                    placeholder="Enter Model ID (optional)",
+                    label="Model ID", 
+                    minimum=1,
+                    precision=0,
+                    scale=1
+                )
+                gr.HTML("<div style='flex: 1;'></div>", scale=2)  # Spacer
         
         # Search controls
         with gr.Row():
@@ -3243,6 +3294,10 @@ def _create_search_tab():
         'nsfw_filter': nsfw_filter,
         'sort_method': sort_method,
         'keyword_filter': keyword_filter,
+        'period_filter': period_filter,
+        'username_filter': username_filter,
+        'post_id_filter': post_id_filter,
+        'model_id_filter': model_id_filter,
         'refresh_results_btn': refresh_results_btn,
         'fetch_prompts_btn': fetch_prompts_btn,
         'clear_results_btn': clear_results_btn,
@@ -4015,10 +4070,12 @@ def _create_event_handlers():
         queue_status = "Queue: Empty"
         return cache_status, queue_status
     
-    def fetch_new_prompts(nsfw_filter, keyword_filter, sort_method):
+    def fetch_new_prompts(nsfw_filter, keyword_filter, sort_method, period_filter, username_filter, post_id_filter, model_id_filter):
         """Fetch new prompts from Civitai"""
         try:
-            prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method, limit=100, is_fetch_more=False)
+            prompts = script_instance.fetch_civitai_prompts(nsfw_filter, keyword_filter, sort_method, 
+                                                           period_filter, username_filter, post_id_filter, model_id_filter,
+                                                           limit=100, is_fetch_more=False)
             cache_status = f"Cache: {len(script_instance.cached_prompts)} prompts loaded"
             queue_status = f"Queue: {len(script_instance.prompt_queue)} prompts, index: {script_instance.queue_index}"
             return cache_status, queue_status, "", ""
@@ -4169,7 +4226,7 @@ def _create_event_handlers():
         
         return cache_status, search_status, search_info, search_display, 1
     
-    def fetch_prompts_smart(nsfw_filter, keyword_filter, sort_method):
+    def fetch_prompts_smart(nsfw_filter, keyword_filter, sort_method, period_filter, username_filter, post_id_filter, model_id_filter):
         """Smart fetch: initial fetch if empty, fetch more if results exist"""
         try:
             # Check if results exist to determine fetch mode
@@ -4182,7 +4239,7 @@ def _create_event_handlers():
                 fetch_sort = script_instance.last_sort_method
                 print(f"[Smart Fetch] Fetching MORE prompts with saved filters: {fetch_nsfw}, {fetch_sort}")
             else:
-                # Use current filter settings from Main Controls for initial fetch
+                # Use current filter settings from Search tab for initial fetch
                 fetch_nsfw = nsfw_filter
                 fetch_keyword = keyword_filter
                 fetch_sort = sort_method
@@ -4193,6 +4250,10 @@ def _create_event_handlers():
                 fetch_nsfw,
                 fetch_keyword,
                 fetch_sort,
+                period_filter,
+                username_filter,
+                post_id_filter,
+                model_id_filter,
                 limit=100,
                 is_fetch_more=is_fetch_more
             )
@@ -4375,7 +4436,8 @@ def on_ui_tabs():
         
         search_tab['fetch_prompts_btn'].click(
             event_handlers['fetch_prompts_smart'],
-            inputs=[search_tab['nsfw_filter'], search_tab['keyword_filter'], search_tab['sort_method']],
+            inputs=[search_tab['nsfw_filter'], search_tab['keyword_filter'], search_tab['sort_method'], 
+                   search_tab['period_filter'], search_tab['username_filter'], search_tab['post_id_filter'], search_tab['model_id_filter']],
             outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
