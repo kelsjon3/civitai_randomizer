@@ -2886,13 +2886,6 @@ def _create_main_controls_tab():
         gr.HTML("<h3>RAND Random Prompt Generation</h3>")
         gr.HTML("<p>Fetch prompts from Civitai and manage your prompt queue</p>")
         
-        # API Configuration Section
-        with gr.Group():
-            gr.HTML("<h4>KEY API Configuration</h4>")
-            with gr.Row():
-                test_api_btn = gr.Button("LINK Test API Connection", variant="secondary")
-                api_status = gr.HTML("Click to test API connection")
-        
         # Fetch Controls Section
         with gr.Group():
             gr.HTML("<h4>FETCH Fetch Prompts from Civitai</h4>")
@@ -2953,34 +2946,8 @@ def _create_main_controls_tab():
         with gr.Group(visible=False):
             hidden_positive_prompt = gr.Textbox(elem_id="civitai_hidden_positive", label="Hidden Positive")
             hidden_negative_prompt = gr.Textbox(elem_id="civitai_hidden_negative", label="Hidden Negative")
-        
-        # Lora Availability Section
-        with gr.Group():
-            gr.HTML("<h4>- Lora Availability Checker</h4>")
-            gr.HTML("<p>Scan and manage your local Lora files for availability checking</p>")
-            
-            with gr.Row():
-                scan_loras_btn = gr.Button("SEARCH Scan Loras", variant="secondary")
-                force_rescan_btn = gr.Button("REF Force Rescan", variant="secondary")
-                clear_lora_cache_btn = gr.Button("DEL Clear Cache", variant="secondary")
-            
-            lora_scan_status = gr.HTML("Lora database: Not scanned")
-        
-        # LORA Randomizer Section (kept for compatibility)
-        with gr.Group():
-            gr.HTML("<h4>ART LORA Randomizer (Legacy)</h4>")
-            with gr.Row():
-                refresh_loras_btn = gr.Button("REF Refresh LORA List", variant="secondary")
-            
-            lora_selection = gr.CheckboxGroup(
-                choices=["Loading..."],
-                label="Select LORAs to Randomize",
-                value=[]
-            )
     
     return {
-        'test_api_btn': test_api_btn,
-        'api_status': api_status,
         'nsfw_filter': nsfw_filter,
         'sort_method': sort_method,
         'keyword_filter': keyword_filter,
@@ -2993,13 +2960,7 @@ def _create_main_controls_tab():
         'cache_status': cache_status,
         'prompt_queue_status': prompt_queue_status,
         'hidden_positive_prompt': hidden_positive_prompt,
-        'hidden_negative_prompt': hidden_negative_prompt,
-        'scan_loras_btn': scan_loras_btn,
-        'force_rescan_btn': force_rescan_btn,
-        'clear_lora_cache_btn': clear_lora_cache_btn,
-        'lora_scan_status': lora_scan_status,
-        'refresh_loras_btn': refresh_loras_btn,
-        'lora_selection': lora_selection
+        'hidden_negative_prompt': hidden_negative_prompt
     }
 
 def _create_queue_tab():
@@ -3175,6 +3136,31 @@ def _create_event_handlers():
         api_key = getattr(shared.opts, 'civitai_api_key', '')
         result = script_instance.test_civitai_api(api_key)
         return result
+    
+    def refresh_api_key_status():
+        """Refresh and display current API key status"""
+        import modules.shared as shared
+        api_key = getattr(shared.opts, 'civitai_api_key', '')
+        
+        if api_key:
+            masked_key = '***' + api_key[-4:] if len(api_key) > 4 else '***'
+            status = f"<span style='color: green;'>API Key configured: {masked_key}</span>"
+        else:
+            status = "<span style='color: orange;'>No API key configured</span>"
+        
+        return status
+    
+    def get_current_paths():
+        """Get current directory path configurations"""
+        import modules.shared as shared
+        
+        lora_path = getattr(shared.opts, 'civitai_lora_path', '')
+        checkpoint_path = getattr(shared.opts, 'civitai_checkpoint_path', '')
+        
+        lora_status = f"<strong>Lora Path:</strong> {lora_path}" if lora_path else "<strong>Lora Path:</strong> Auto-detected"
+        checkpoint_status = f"<strong>Checkpoint Path:</strong> {checkpoint_path}" if checkpoint_path else "<strong>Checkpoint Path:</strong> Auto-detected"
+        
+        return lora_status, checkpoint_status
     
     def refresh_lora_list():
         loras = script_instance.get_available_loras()
@@ -3833,6 +3819,8 @@ def _create_event_handlers():
     # Return all handlers as a dictionary
     return {
         'test_api_connection': test_api_connection,
+        'refresh_api_key_status': refresh_api_key_status,
+        'get_current_paths': get_current_paths,
         'refresh_lora_list': refresh_lora_list,
         'scan_local_loras': scan_local_loras,
         'scan_and_refresh_folders': scan_and_refresh_folders,
@@ -3881,21 +3869,17 @@ def on_ui_tabs():
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
         with gr.Tabs():
-            # Create all four tabs
+            # Create all five tabs
             main_controls_tab = _create_main_controls_tab()
             queue_tab = _create_queue_tab()
             checkpoint_management_tab = _create_checkpoint_management_tab()
             lora_management_tab = _create_lora_management_tab()
+            settings_tab = _create_settings_tab()
         
         # Event handlers
         event_handlers = _create_event_handlers()
         
         # Main Controls Tab Event Bindings
-        main_controls_tab['test_api_btn'].click(
-            event_handlers['test_api_connection'],
-            outputs=[main_controls_tab['api_status']]
-        )
-        
         main_controls_tab['fetch_prompts_btn'].click(
             event_handlers['fetch_new_prompts'],
             inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
@@ -3962,27 +3946,6 @@ def on_ui_tabs():
                 return [custom_start, custom_end, custom_negative];
             }
             """
-        )
-        
-        # Lora controls
-        main_controls_tab['scan_loras_btn'].click(
-            event_handlers['scan_local_loras'],
-            outputs=[main_controls_tab['lora_scan_status']]
-        )
-        
-        main_controls_tab['force_rescan_btn'].click(
-            event_handlers['force_rescan_loras'],
-            outputs=[main_controls_tab['lora_scan_status']]
-        )
-        
-        main_controls_tab['clear_lora_cache_btn'].click(
-            event_handlers['clear_lora_cache'],
-            outputs=[main_controls_tab['lora_scan_status']]
-        )
-        
-        main_controls_tab['refresh_loras_btn'].click(
-            event_handlers['refresh_lora_list'],
-            outputs=[main_controls_tab['lora_selection']]
         )
         
         # Queue Tab Event Bindings
@@ -4114,9 +4077,16 @@ def on_ui_tabs():
             outputs=[lora_management_tab['lora_display']]
         )
         
-        # Initialize LORA list on load
-        loras = script_instance.get_available_loras()
-        main_controls_tab['lora_selection'].choices = loras
+        # Settings Tab Event Bindings
+        settings_tab['test_api_btn'].click(
+            event_handlers['test_api_connection'],
+            outputs=[settings_tab['api_status']]
+        )
+        
+        settings_tab['refresh_api_key_btn'].click(
+            event_handlers['refresh_api_key_status'],
+            outputs=[settings_tab['current_api_key']]
+        )
         
         # Initialize folder filter choices for Lora tab
         try:
@@ -4146,9 +4116,73 @@ def on_ui_tabs():
         except Exception as e:
             print(f"[Civitai Randomizer] Error initializing Checkpoint folder filter: {e}")
         
+        # Initialize settings tab with current values
+        try:
+            # Load initial API key status
+            import modules.shared as shared
+            api_key = getattr(shared.opts, 'civitai_api_key', '')
+            if api_key:
+                masked_key = '***' + api_key[-4:] if len(api_key) > 4 else '***'
+                api_key_status = f"<span style='color: green;'>API Key configured: {masked_key}</span>"
+            else:
+                api_key_status = "<span style='color: orange;'>No API key configured</span>"
+            settings_tab['current_api_key'].value = api_key_status
+            
+            # Load initial path configurations
+            lora_path = getattr(shared.opts, 'civitai_lora_path', '')
+            checkpoint_path = getattr(shared.opts, 'civitai_checkpoint_path', '')
+            
+            lora_status = f"<strong>Lora Path:</strong> {lora_path}" if lora_path else "<strong>Lora Path:</strong> Auto-detected"
+            checkpoint_status = f"<strong>Checkpoint Path:</strong> {checkpoint_path}" if checkpoint_path else "<strong>Checkpoint Path:</strong> Auto-detected"
+            
+            settings_tab['current_lora_path'].value = lora_status
+            settings_tab['current_checkpoint_path'].value = checkpoint_status
+            
+        except Exception as e:
+            print(f"[Civitai Randomizer] Error initializing settings tab: {e}")
+        
         print(f"[Civitai Randomizer] OK Tab interface with subtabs created successfully")
     
     return [(civitai_tab, "Civitai Randomizer", "civitai_randomizer")]
+
+def _create_settings_tab():
+    """Create the settings tab UI components"""
+    with gr.TabItem("Settings"):
+        gr.HTML("<h3>CONF Configuration & Testing</h3>")
+        gr.HTML("<p>Configure your Civitai API settings and test connectivity</p>")
+        
+        # API Configuration Section
+        with gr.Group():
+            gr.HTML("<h4>KEY API Configuration</h4>")
+            
+            # Display current API key setting
+            current_api_key = gr.HTML("Loading API key status...")
+            
+            gr.HTML("<p>To configure your API key, go to <strong>Settings > Civitai Randomizer</strong> in the main WebUI settings.</p>")
+            
+            # API Test Section
+            with gr.Row():
+                test_api_btn = gr.Button("LINK Test API Connection", variant="primary")
+                refresh_api_key_btn = gr.Button("REF Refresh Key", variant="secondary")
+            
+            api_status = gr.HTML("Click 'Test API Connection' to verify your API key")
+        
+        # Path Configuration Section
+        with gr.Group():
+            gr.HTML("<h4>PATH Directory Paths</h4>")
+            current_lora_path = gr.HTML("Loading Lora path...")
+            current_checkpoint_path = gr.HTML("Loading Checkpoint path...")
+            
+            gr.HTML("<p>To configure directory paths, go to <strong>Settings > Civitai Randomizer</strong> in the main WebUI settings.</p>")
+    
+    return {
+        'current_api_key': current_api_key,
+        'test_api_btn': test_api_btn,
+        'refresh_api_key_btn': refresh_api_key_btn,
+        'api_status': api_status,
+        'current_lora_path': current_lora_path,
+        'current_checkpoint_path': current_checkpoint_path
+    }
 
 def on_ui_settings():
     """Add Civitai Randomizer settings to the Settings tab"""
