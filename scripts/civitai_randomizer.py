@@ -689,16 +689,6 @@ class CivitaiRandomizerScript(scripts.Script):
                     )
                 ''')
                 
-                # Create indexes for fast lookups
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_sha256 ON loras(sha256)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_name ON loras(name)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_filename ON loras(filename)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_modified_time ON loras(modified_time)')
-                # Civitai enrichment indexes
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_model_id ON loras(civitai_model_id)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_version_id ON loras(civitai_version_id)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_enriched_at ON loras(civitai_enriched_at)')
-                
                 # Create checkpoints table with Civitai enrichment support
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS checkpoints (
@@ -743,16 +733,6 @@ class CivitaiRandomizerScript(scripts.Script):
                     )
                 ''')
                 
-                # Create indexes for checkpoints
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_sha256 ON checkpoints(sha256)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_name ON checkpoints(name)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_filename ON checkpoints(filename)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_modified_time ON checkpoints(modified_time)')
-                # Civitai enrichment indexes
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_model_id ON checkpoints(civitai_model_id)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_version_id ON checkpoints(civitai_version_id)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_enriched_at ON checkpoints(civitai_enriched_at)')
-                
                 # Create scan_stats table for tracking scan progress
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS scan_stats (
@@ -770,11 +750,78 @@ class CivitaiRandomizerScript(scripts.Script):
                     )
                 ''')
                 
+                # Database migration: Add missing columns if they don't exist
+                self._migrate_database_schema(cursor)
+                
+                # Create indexes for fast lookups
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_sha256 ON loras(sha256)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_name ON loras(name)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_filename ON loras(filename)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_modified_time ON loras(modified_time)')
+                # Civitai enrichment indexes
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_model_id ON loras(civitai_model_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_version_id ON loras(civitai_version_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_loras_civitai_enriched_at ON loras(civitai_enriched_at)')
+                
+                # Create indexes for checkpoints
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_sha256 ON checkpoints(sha256)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_name ON checkpoints(name)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_filename ON checkpoints(filename)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_modified_time ON checkpoints(modified_time)')
+                # Civitai enrichment indexes
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_model_id ON checkpoints(civitai_model_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_version_id ON checkpoints(civitai_version_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkpoints_civitai_enriched_at ON checkpoints(civitai_enriched_at)')
+                
                 conn.commit()
                 print(f"[Lora DB] Database initialized successfully: {self.db_path}")
                 
         except Exception as e:
             print(f"[Lora DB] Error initializing database: {e}")
+
+    def _migrate_database_schema(self, cursor):
+        """Migrate database schema to add missing columns"""
+        try:
+            # Check and add missing columns for loras table
+            cursor.execute("PRAGMA table_info(loras)")
+            loras_columns = [column[1] for column in cursor.fetchall()]
+            
+            civitai_columns = [
+                'civitai_model_id', 'civitai_version_id', 'civitai_model_name', 'civitai_model_description',
+                'civitai_creator_username', 'civitai_creator_image', 'civitai_download_count', 
+                'civitai_favorite_count', 'civitai_comment_count', 'civitai_rating_count', 
+                'civitai_rating_average', 'civitai_thumbs_up', 'civitai_thumbs_down', 
+                'civitai_tags_json', 'civitai_trigger_words_json', 'civitai_images_json',
+                'civitai_training_details_json', 'civitai_download_url', 'civitai_last_updated',
+                'civitai_enriched_at', 'created_at', 'updated_at'
+            ]
+            
+            for column in civitai_columns:
+                if column not in loras_columns:
+                    column_type = 'REAL' if column in ['civitai_rating_average', 'civitai_last_updated', 'civitai_enriched_at', 'created_at', 'updated_at'] else 'TEXT'
+                    if column in ['civitai_model_id', 'civitai_version_id', 'civitai_download_count', 'civitai_favorite_count', 'civitai_comment_count', 'civitai_rating_count', 'civitai_thumbs_up', 'civitai_thumbs_down']:
+                        column_type = 'INTEGER'
+                    
+                    default_value = "DEFAULT (datetime('now'))" if column in ['created_at', 'updated_at'] else ''
+                    cursor.execute(f'ALTER TABLE loras ADD COLUMN {column} {column_type} {default_value}')
+                    print(f"[DB Migration] Added column {column} to loras table")
+            
+            # Check and add missing columns for checkpoints table
+            cursor.execute("PRAGMA table_info(checkpoints)")
+            checkpoints_columns = [column[1] for column in cursor.fetchall()]
+            
+            for column in civitai_columns:
+                if column not in checkpoints_columns:
+                    column_type = 'REAL' if column in ['civitai_rating_average', 'civitai_last_updated', 'civitai_enriched_at', 'created_at', 'updated_at'] else 'TEXT'
+                    if column in ['civitai_model_id', 'civitai_version_id', 'civitai_download_count', 'civitai_favorite_count', 'civitai_comment_count', 'civitai_rating_count', 'civitai_thumbs_up', 'civitai_thumbs_down']:
+                        column_type = 'INTEGER'
+                    
+                    default_value = "DEFAULT (datetime('now'))" if column in ['created_at', 'updated_at'] else ''
+                    cursor.execute(f'ALTER TABLE checkpoints ADD COLUMN {column} {column_type} {default_value}')
+                    print(f"[DB Migration] Added column {column} to checkpoints table")
+                    
+        except Exception as e:
+            print(f"[DB Migration] Error migrating schema: {e}")
 
     def get_db_connection(self):
         """Get a database connection with proper configuration"""
@@ -1493,7 +1540,9 @@ class CivitaiRandomizerScript(scripts.Script):
             
         except Exception as e:
             print(f"[Civitai Enrichment] ERROR Error during enrichment: {e}")
-            return {'enriched': 0, 'errors': 1, 'skipped': 0}
+            import traceback
+            traceback.print_exc()
+            return {'enriched': 0, 'errors': 1, 'skipped': 0, 'total_processed': 0}
 
     def search_checkpoints_db(self, name_query: str = "", hash_query: str = "", 
                              folder_query: str = "", has_metadata: bool = False, 
@@ -2542,6 +2591,10 @@ class CivitaiRandomizerScript(scripts.Script):
     def format_lora_availability_info(self, prompt_data: Dict[str, Any]) -> List[str]:
         """Format Lora availability information for display"""
         try:
+            # Safety check for prompt_data
+            if not prompt_data or not isinstance(prompt_data, dict):
+                return []
+            
             # Parse Loras from the prompt
             civitai_loras = self.parse_loras_from_civitai_prompt(prompt_data)
             
@@ -2551,64 +2604,84 @@ class CivitaiRandomizerScript(scripts.Script):
             # Check availability
             availability_results = self.check_lora_availability(civitai_loras)
             
+            if not availability_results:
+                return []
+            
             lora_info = []
             
             for result in availability_results:
-                civitai_lora = result['civitai_lora']
-                lora_name = civitai_lora.get('name', 'Unknown')
-                lora_strength = civitai_lora.get('strength', 1.0)
-                lora_hash = civitai_lora.get('hash', 'No hash')
-                lora_source = civitai_lora.get('source', 'unknown')
-                
-                # Determine status icon and color
-                if result['available']:
-                    if result['match_method'] == 'hash':
-                        status_icon = "OK"
-                        status_color = "#10b981"  # Green
-                        status_text = "Available (Hash Match)"
-                    else:
-                        status_icon = "!"
-                        status_color = "#f59e0b"  # Orange
-                        status_text = "Available (Name Match)"
-                else:
-                    status_icon = "X"
-                    status_color = "#ef4444"  # Red
-                    status_text = "Not Found"
-                
-                # Build match details
-                match_details = []
-                if result['local_matches']:
-                    for match in result['local_matches'][:2]:  # Show max 2 matches to save space
-                        match_filename = match.get('filename', 'Unknown file')
-                        match_type = match.get('match_type', 'unknown')
-                        match_details.append(f"{match_filename} ({match_type})")
+                try:
+                    # Safety checks for result structure
+                    if not result or not isinstance(result, dict):
+                        continue
                     
-                    if len(result['local_matches']) > 2:
-                        match_details.append(f"... and {len(result['local_matches']) - 2} more")
-                
-                # Create formatted info string
-                lora_detail = f"""
-                <div style='margin: 4px 0; padding: 6px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid {status_color};'>
-                    <div style='display: flex; align-items: center; gap: 6px; margin-bottom: 2px;'>
-                        <span style='font-size: 12px;'>{status_icon}</span>
-                        <strong style='color: {status_color}; font-size: 11px;'>{lora_name}</strong>
-                        <span style='color: #888; font-size: 10px;'>({lora_strength})</span>
+                    civitai_lora = result.get('civitai_lora', {})
+                    if not civitai_lora or not isinstance(civitai_lora, dict):
+                        continue
+                    
+                    lora_name = civitai_lora.get('name', 'Unknown')
+                    lora_strength = civitai_lora.get('strength', 1.0)
+                    lora_hash = civitai_lora.get('hash', 'No hash')
+                    lora_source = civitai_lora.get('source', 'unknown')
+                    
+                    # Determine status icon and color
+                    if result.get('available', False):
+                        if result.get('match_method') == 'hash':
+                            status_icon = "OK"
+                            status_color = "#10b981"  # Green
+                            status_text = "Available (Hash Match)"
+                        else:
+                            status_icon = "!"
+                            status_color = "#f59e0b"  # Orange
+                            status_text = "Available (Name Match)"
+                    else:
+                        status_icon = "X"
+                        status_color = "#ef4444"  # Red
+                        status_text = "Not Found"
+                    
+                    # Build match details safely
+                    match_details = []
+                    local_matches = result.get('local_matches', [])
+                    if local_matches and isinstance(local_matches, list):
+                        for match in local_matches[:2]:  # Show max 2 matches to save space
+                            if match and isinstance(match, dict):
+                                match_filename = match.get('filename', 'Unknown file')
+                                match_type = match.get('match_type', 'unknown')
+                                match_details.append(f"{match_filename} ({match_type})")
+                        
+                        if len(local_matches) > 2:
+                            match_details.append(f"... and {len(local_matches) - 2} more")
+                    
+                    # Create formatted info string
+                    lora_detail = f"""
+                    <div style='margin: 4px 0; padding: 6px; background: #1a1a1a; border-radius: 4px; border-left: 3px solid {status_color};'>
+                        <div style='display: flex; align-items: center; gap: 6px; margin-bottom: 2px;'>
+                            <span style='font-size: 12px;'>{status_icon}</span>
+                            <strong style='color: {status_color}; font-size: 11px;'>{lora_name}</strong>
+                            <span style='color: #888; font-size: 10px;'>({lora_strength})</span>
+                        </div>
+                        <div style='font-size: 10px; color: #bbb; line-height: 1.3;'>
+                            Status: {status_text}<br>
+                            Hash: <code style='background: #2a2a2a; padding: 1px 2px; border-radius: 2px;'>{str(lora_hash)[:16]}{'...' if len(str(lora_hash)) > 16 else ''}</code><br>
+                            Source: {lora_source}
+                            {f'<br>Matches: {", ".join(match_details)}' if match_details else ''}
+                        </div>
                     </div>
-                    <div style='font-size: 10px; color: #bbb; line-height: 1.3;'>
-                        Status: {status_text}<br>
-                        Hash: <code style='background: #2a2a2a; padding: 1px 2px; border-radius: 2px;'>{lora_hash[:16]}{'...' if len(str(lora_hash)) > 16 else ''}</code><br>
-                        Source: {lora_source}
-                        {f'<br>Matches: {", ".join(match_details)}' if match_details else ''}
-                    </div>
-                </div>
-                """
+                    """
+                    
+                    lora_info.append(lora_detail.strip())
                 
-                lora_info.append(lora_detail.strip())
+                except Exception as inner_e:
+                    print(f"[Lora Availability] Error processing individual Lora result: {inner_e}")
+                    # Add a fallback entry for this Lora
+                    lora_info.append(f"<div style='color: #ef4444; font-size: 11px;'>Error processing Lora: {str(inner_e)}</div>")
             
             return lora_info
             
         except Exception as e:
             print(f"[Lora Availability] Error formatting Lora info: {e}")
+            import traceback
+            traceback.print_exc()
             return [f"<div style='color: #ef4444; font-size: 11px;'>Error checking Lora availability: {str(e)}</div>"]
 
     def format_queue_item_html(self, i, prompt_data, current_index, image_html, basic_image_info,
