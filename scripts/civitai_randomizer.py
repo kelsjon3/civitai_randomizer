@@ -2971,8 +2971,8 @@ def _create_queue_tab():
         
         # Queue controls
         with gr.Row():
-            refresh_queue_btn = gr.Button("🔄", variant="secondary", size="sm")
-            fetch_prompts_btn = gr.Button("FETCH Fetch Prompts", variant="primary")
+            refresh_queue_btn = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
+            fetch_prompts_btn = gr.Button("Fetch Prompts", variant="primary")
             reset_index_btn = gr.Button("RST Reset Index", variant="secondary")
             clear_queue_btn = gr.Button("DEL Clear Queue", variant="stop")
         
@@ -3812,6 +3812,7 @@ def _create_event_handlers():
                 fetch_sort = sort_method
                 print(f"[Smart Fetch] Fetching INITIAL prompts with current filters: {fetch_nsfw}, {fetch_sort}")
             
+            # Fetch prompts - this updates the queue directly
             prompts = script_instance.fetch_civitai_prompts(
                 fetch_nsfw,
                 fetch_keyword,
@@ -3819,6 +3820,8 @@ def _create_event_handlers():
                 limit=100,
                 is_fetch_more=is_fetch_more
             )
+            
+            print(f"[Smart Fetch] After fetch: Queue has {len(script_instance.prompt_queue)} prompts")
             
             cache_status = f"Cache: {len(script_instance.cached_prompts)} prompts loaded"
             queue_status = f"Queue: {len(script_instance.prompt_queue)} prompts, index: {script_instance.queue_index}"
@@ -3830,6 +3833,7 @@ def _create_event_handlers():
             
         except Exception as e:
             error_msg = f"Error fetching prompts: {str(e)}"
+            print(f"[Smart Fetch] Exception: {e}")
             return error_msg, "Queue: Error", "", "", "Queue: Error", "Error loading queue"
     
     # Return all handlers as a dictionary
