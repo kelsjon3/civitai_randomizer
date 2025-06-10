@@ -128,9 +128,9 @@ class CivitaiRandomizerScript(scripts.Script):
             )
         
         print(f"Civitai Randomizer: Updated prompts")
-        print(f"  Positive: '{original_prompt[:30]}...' → '{p.prompt[:30]}...'")
+        print(f"  Positive: '{original_prompt[:30]}...' -> '{p.prompt[:30]}...'")
         if hasattr(p, 'negative_prompt'):
-            print(f"  Negative: '{original_negative[:30]}...' → '{p.negative_prompt[:30]}...'")
+            print(f"  Negative: '{original_negative[:30]}...' -> '{p.negative_prompt[:30]}...'")
 
     def load_config(self):
         """Load API key from WebUI settings"""
@@ -191,19 +191,19 @@ class CivitaiRandomizerScript(scripts.Script):
             print(f"  Negative ({len(negative)} chars): {negative[:100]}...")
             
             remaining = len(self.prompt_queue) - self.queue_index
-            status_msg = f"✓ Generated prompts! Queue: {remaining} remaining"
+            status_msg = f"OK Generated prompts! Queue: {remaining} remaining"
             
             print(f"[Civitai Randomizer] Returning prompts as outputs for JS access")
             return status_msg, positive, negative
         else:
             print(f"[Civitai Randomizer] No prompts available in queue")
-            return "✗ No prompts available - fetch some prompts first!", "", ""
+            return "X No prompts available - fetch some prompts first!", "", ""
 
     def test_civitai_api(self, api_key: str) -> str:
         """Test connection to Civitai API with proper authentication validation"""
         try:
             if not api_key or not api_key.strip():
-                return "<span style='color: red;'>✗ No API key provided</span>"
+                return "<span style='color: red;'>X No API key provided</span>"
             
             headers = {'Authorization': f'Bearer {api_key.strip()}'}
             
@@ -221,13 +221,13 @@ class CivitaiRandomizerScript(scripts.Script):
                 try:
                     user_data = response.json()
                     username = user_data.get('username', 'Unknown')
-                    return f"<span style='color: green;'>✓ API key valid - Authenticated as: {username}</span>"
+                    return f"<span style='color: green;'>OK API key valid - Authenticated as: {username}</span>"
                 except:
                     return f"<span style='color: orange;'>! API key valid but unexpected user data format</span>"
             elif response.status_code == 401:
-                return f"<span style='color: red;'>✗ Invalid API key - Authentication failed</span>"
+                return f"<span style='color: red;'>X Invalid API key - Authentication failed</span>"
             elif response.status_code == 403:
-                return f"<span style='color: red;'>✗ API key forbidden - Check permissions</span>"
+                return f"<span style='color: red;'>X API key forbidden - Check permissions</span>"
             else:
                 # If /me endpoint fails, fall back to testing with the models endpoint with favorites
                 print(f"[API Test] /me failed with {response.status_code}, trying authenticated models endpoint...")
@@ -241,18 +241,18 @@ class CivitaiRandomizerScript(scripts.Script):
                 print(f"[API Test] /models with favorites response: {response.status_code}")
                 
                 if response.status_code == 200:
-                    return f"<span style='color: green;'>✓ API key appears valid (authenticated request successful)</span>"
+                    return f"<span style='color: green;'>OK API key appears valid (authenticated request successful)</span>"
                 elif response.status_code == 401:
-                    return f"<span style='color: red;'>✗ Invalid API key - Authentication failed</span>"
+                    return f"<span style='color: red;'>X Invalid API key - Authentication failed</span>"
                 else:
                     return f"<span style='color: orange;'>! API key might be valid but service issues (HTTP {response.status_code})</span>"
                 
         except requests.exceptions.Timeout:
-            return f"<span style='color: red;'>✗ Connection timeout - Check your internet connection</span>"
+            return f"<span style='color: red;'>X Connection timeout - Check your internet connection</span>"
         except requests.exceptions.ConnectionError:
-            return f"<span style='color: red;'>✗ Connection error - Cannot reach Civitai servers</span>"
+            return f"<span style='color: red;'>X Connection error - Cannot reach Civitai servers</span>"
         except Exception as e:
-            return f"<span style='color: red;'>✗ Unexpected error: {str(e)}</span>"
+            return f"<span style='color: red;'>X Unexpected error: {str(e)}</span>"
 
     def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int, use_next_page_url: bool = False) -> tuple:
         """Setup headers and parameters for Civitai API request"""
@@ -1244,7 +1244,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 remaining_files = len(files_to_process) - processed_count
                 estimated_remaining = avg_time_per_file * remaining_files
                 
-                print(f"[Checkpoint DB] ✓ Completed {processed_count}/{len(files_to_process)} files. ETA: {estimated_remaining/60:.1f} min")
+                print(f"[Checkpoint DB] OK Completed {processed_count}/{len(files_to_process)} files. ETA: {estimated_remaining/60:.1f} min")
                 
             except Exception as e:
                 print(f"[Checkpoint DB] Error processing {file_path}: {e}")
@@ -1320,17 +1320,17 @@ class CivitaiRandomizerScript(scripts.Script):
             
             if response.status_code == 200:
                 data = response.json()
-                print(f"[Civitai API] ✓ Found model: {data.get('model', {}).get('name', 'Unknown')}")
+                print(f"[Civitai API] OK Found model: {data.get('model', {}).get('name', 'Unknown')}")
                 return data
             elif response.status_code == 404:
-                print(f"[Civitai API] ✗ No model found for hash: {file_hash[:16]}")
+                print(f"[Civitai API] X No model found for hash: {file_hash[:16]}")
                 return None
             else:
-                print(f"[Civitai API] !️ API error {response.status_code}: {response.text}")
+                print(f"[Civitai API] ! API error {response.status_code}: {response.text}")
                 return None
                 
         except Exception as e:
-            print(f"[Civitai API] 💥 Error looking up hash {file_hash[:16]}: {e}")
+            print(f"[Civitai API] ERROR Error looking up hash {file_hash[:16]}: {e}")
             return None
 
     def extract_civitai_metadata(self, api_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1470,18 +1470,18 @@ class CivitaiRandomizerScript(scripts.Script):
                             conn.commit()
                             
                         enriched_count += 1
-                        print(f"[Civitai Enrichment] ✓ Enriched: {filename}")
+                        print(f"[Civitai Enrichment] OK Enriched: {filename}")
                     else:
                         error_count += 1
-                        print(f"[Civitai Enrichment] !️ Failed to extract metadata: {filename}")
+                        print(f"[Civitai Enrichment] ! Failed to extract metadata: {filename}")
                 else:
                     skipped_count += 1
-                    print(f"[Civitai Enrichment] ⏭️ No Civitai data found: {filename}")
+                    print(f"[Civitai Enrichment] SKIP No Civitai data found: {filename}")
             
             print(f"[Civitai Enrichment] Completed for {table_name}:")
-            print(f"  ✓ Enriched: {enriched_count}")
-            print(f"  !️ Errors: {error_count}")
-            print(f"  ⏭️ Skipped: {skipped_count}")
+            print(f"  OK Enriched: {enriched_count}")
+            print(f"  ! Errors: {error_count}")
+            print(f"  SKIP Skipped: {skipped_count}")
             
             return {
                 'enriched': enriched_count,
@@ -1491,7 +1491,7 @@ class CivitaiRandomizerScript(scripts.Script):
             }
             
         except Exception as e:
-            print(f"[Civitai Enrichment] 💥 Error during enrichment: {e}")
+            print(f"[Civitai Enrichment] ERROR Error during enrichment: {e}")
             return {'enriched': 0, 'errors': 1, 'skipped': 0}
 
     def search_checkpoints_db(self, name_query: str = "", hash_query: str = "", 
@@ -1601,7 +1601,7 @@ class CivitaiRandomizerScript(scripts.Script):
         if not checkpoints:
             return """
             <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
-                <h3>📭 No Checkpoints Found</h3>
+                <h3>[EMPTY] No Checkpoints Found</h3>
                 <p>No Checkpoints match your search criteria. Try adjusting your filters or scan your Checkpoint directory.</p>
             </div>
             """
@@ -1636,8 +1636,8 @@ class CivitaiRandomizerScript(scripts.Script):
             has_metadata = bool(checkpoint.get('metadata_json'))
             has_civitai = bool(checkpoint.get('civitai_enriched_at'))
             
-            hash_indicator = "✓" if has_hash else "✗"
-            metadata_indicator = "✓" if has_metadata else "✗"
+            hash_indicator = "OK" if has_hash else "X"
+            metadata_indicator = "OK" if has_metadata else "X"
             civitai_indicator = "*" if has_civitai else "o"
             
             # Metadata info
@@ -1688,7 +1688,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 if image_items:
                     checkpoint_images_html = f"""
                     <div style='margin-bottom: 8px;'>
-                        <div style='font-size: 11px; color: #9ca3af; margin-bottom: 4px;'><strong>• Civitai Images:</strong></div>
+                        <div style='font-size: 11px; color: #9ca3af; margin-bottom: 4px;'><strong>- Civitai Images:</strong></div>
                         <div style='display: flex; gap: 8px; flex-wrap: wrap;'>
                             {''.join(image_items)}
                         </div>
@@ -1721,17 +1721,17 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Info column -->
                     <div style='flex: 1;'>
                         <div style='margin-bottom: 8px;'>
-                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>• Creator & Stats:</strong></div>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Creator & Stats:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151; line-height: 1.4;'>
                                 <strong>Creator:</strong> {civitai_creator if civitai_creator else "Unknown"}<br>
-                                <strong>Downloads:</strong> {civitai_downloads:,} | <strong>Rating:</strong> {"⭐" * int(civitai_rating)}{"☆" * (5-int(civitai_rating))} ({civitai_rating:.1f}/5, {civitai_rating_count} votes)<br>
+                                <strong>Downloads:</strong> {civitai_downloads:,} | <strong>Rating:</strong> {"*" * int(civitai_rating)}{"*" * (5-int(civitai_rating))} ({civitai_rating:.1f}/5, {civitai_rating_count} votes)<br>
                                 <strong>Description:</strong> {(civitai_description[:100] + "...") if len(civitai_description) > 100 else (civitai_description or "No description")}
                             </div>
                         </div>
                         
                         {f"""
                         <div style='margin-bottom: 8px;'>
-                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>• Trigger Words:</strong></div>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Trigger Words:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
                                 {", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified"}
                             </div>
@@ -1740,7 +1740,7 @@ class CivitaiRandomizerScript(scripts.Script):
                         
                         {f"""
                         <div style='margin-bottom: 8px;'>
-                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>• Tags:</strong></div>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Tags:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
                                 {", ".join([f'<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">{tag}</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags"}
                             </div>
@@ -2147,7 +2147,7 @@ class CivitaiRandomizerScript(scripts.Script):
         if not loras:
             return """
             <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
-                <h3>📭 No Loras Found</h3>
+                <h3>[EMPTY] No Loras Found</h3>
                 <p>No Loras match your search criteria. Try adjusting your filters or scan your Lora directory.</p>
             </div>
             """
@@ -2182,8 +2182,8 @@ class CivitaiRandomizerScript(scripts.Script):
             has_metadata = bool(lora.get('metadata_json'))
             has_civitai = bool(lora.get('civitai_enriched_at'))
             
-            hash_indicator = "✓" if has_hash else "✗"
-            metadata_indicator = "✓" if has_metadata else "✗"
+            hash_indicator = "OK" if has_hash else "X"
+            metadata_indicator = "OK" if has_metadata else "X"
             civitai_indicator = "*" if has_civitai else "o"
             
             # Metadata info
@@ -2234,7 +2234,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 if image_items:
                     images_html = f"""
                     <div style='margin-bottom: 8px;'>
-                        <div style='font-size: 11px; color: #9ca3af; margin-bottom: 4px;'><strong>• Civitai Images:</strong></div>
+                        <div style='font-size: 11px; color: #9ca3af; margin-bottom: 4px;'><strong>- Civitai Images:</strong></div>
                         <div style='display: flex; gap: 8px; flex-wrap: wrap;'>
                             {''.join(image_items)}
                         </div>
@@ -2267,17 +2267,17 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Info column -->
                     <div style='flex: 1;'>
                         <div style='margin-bottom: 8px;'>
-                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>• Creator & Stats:</strong></div>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Creator & Stats:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151; line-height: 1.4;'>
                                 <strong>Creator:</strong> {civitai_creator if civitai_creator else "Unknown"}<br>
-                                <strong>Downloads:</strong> {civitai_downloads:,} | <strong>Rating:</strong> {"⭐" * int(civitai_rating)}{"☆" * (5-int(civitai_rating))} ({civitai_rating:.1f}/5, {civitai_rating_count} votes)<br>
+                                <strong>Downloads:</strong> {civitai_downloads:,} | <strong>Rating:</strong> {"*" * int(civitai_rating)}{"*" * (5-int(civitai_rating))} ({civitai_rating:.1f}/5, {civitai_rating_count} votes)<br>
                                 <strong>Description:</strong> {(civitai_description[:100] + "...") if len(civitai_description) > 100 else (civitai_description or "No description")}
                             </div>
                         </div>
                         
                         {f"""
                         <div style='margin-bottom: 8px;'>
-                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>• Trigger Words:</strong></div>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Trigger Words:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
                                 {", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified"}
                             </div>
@@ -2286,7 +2286,7 @@ class CivitaiRandomizerScript(scripts.Script):
                         
                         {f"""
                         <div style='margin-bottom: 8px;'>
-                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>• Tags:</strong></div>
+                            <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Tags:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
                                 {", ".join([f'<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">{tag}</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags"}
                             </div>
@@ -2406,7 +2406,7 @@ class CivitaiRandomizerScript(scripts.Script):
             return """
             <div style='text-align: center; margin-bottom: 10px; padding: 40px; 
                        background: #2a2a2a; border-radius: 8px; color: #aaa; border: 1px solid #444;'>
-                <strong>📷</strong><br>No image available
+                <strong>IMG</strong><br>No image available
             </div>
             """
 
@@ -2415,20 +2415,20 @@ class CivitaiRandomizerScript(scripts.Script):
         # Build comprehensive metadata display
         image_info = []
         if prompt_data.get('image_width') and prompt_data.get('image_height'):
-            image_info.append(f"{prompt_data.get('image_width', 0)} × {prompt_data.get('image_height', 0)}px")
+            image_info.append(f"{prompt_data.get('image_width', 0)} x {prompt_data.get('image_height', 0)}px")
         if prompt_data.get('id'):
             image_info.append(f"ID: {prompt_data.get('id')}")
         if prompt_data.get('username'):
-            image_info.append(f"• {prompt_data.get('username')}")
+            image_info.append(f"- {prompt_data.get('username')}")
         if prompt_data.get('created_at'):
             # Format date nicely
             import datetime
             try:
                 dt = datetime.datetime.fromisoformat(prompt_data.get('created_at').replace('Z', '+00:00'))
                 formatted_date = dt.strftime('%Y-%m-%d %H:%M')
-                image_info.append(f"📅 {formatted_date}")
+                image_info.append(f"DATE: {formatted_date}")
             except:
-                image_info.append(f"📅 {prompt_data.get('created_at')}")
+                image_info.append(f"DATE: {prompt_data.get('created_at')}")
         return image_info
 
     def format_nsfw_indicators(self, prompt_data):
@@ -2441,17 +2441,17 @@ class CivitaiRandomizerScript(scripts.Script):
         # Reaction stats - show ALL reactions including zeros
         all_reactions = []
         if prompt_data.get('likes', 0) >= 0:
-            all_reactions.append(f"👍 {prompt_data.get('likes', 0)}")
+            all_reactions.append(f"LIKE {prompt_data.get('likes', 0)}")
         if prompt_data.get('hearts', 0) >= 0:
-            all_reactions.append(f"❤️ {prompt_data.get('hearts', 0)}")
+            all_reactions.append(f"HEART {prompt_data.get('hearts', 0)}")
         if prompt_data.get('laughs', 0) >= 0:
-            all_reactions.append(f"😂 {prompt_data.get('laughs', 0)}")
+            all_reactions.append(f"LAUGH {prompt_data.get('laughs', 0)}")
         if prompt_data.get('cries', 0) >= 0:
-            all_reactions.append(f"😢 {prompt_data.get('cries', 0)}")
+            all_reactions.append(f"CRY {prompt_data.get('cries', 0)}")
         if prompt_data.get('dislikes', 0) >= 0:
-            all_reactions.append(f"👎 {prompt_data.get('dislikes', 0)}")
+            all_reactions.append(f"DISLIKE {prompt_data.get('dislikes', 0)}")
         if prompt_data.get('comments', 0) >= 0:
-            all_reactions.append(f"💬 {prompt_data.get('comments', 0)}")
+            all_reactions.append(f"COMMENT {prompt_data.get('comments', 0)}")
         
         if all_reactions:
             indicators.append(f"<span style='color: #ffd700; font-size: 11px;'>{' '.join(all_reactions)}</span>")
@@ -2562,15 +2562,15 @@ class CivitaiRandomizerScript(scripts.Script):
                 # Determine status icon and color
                 if result['available']:
                     if result['match_method'] == 'hash':
-                        status_icon = "✓"
+                        status_icon = "OK"
                         status_color = "#10b981"  # Green
                         status_text = "Available (Hash Match)"
                     else:
-                        status_icon = "!️"
+                        status_icon = "!"
                         status_color = "#f59e0b"  # Orange
                         status_text = "Available (Name Match)"
                 else:
-                    status_icon = "✗"
+                    status_icon = "X"
                     status_color = "#ef4444"  # Red
                     status_text = "Not Found"
                 
@@ -2615,7 +2615,7 @@ class CivitaiRandomizerScript(scripts.Script):
                               hires_params, extra_params, lora_info, indicators, positive_preview, 
                               negative_preview, negative_text):
         """Format HTML for a single queue item"""
-        status_icon = "✓" if i < current_index else "⏳"
+        status_icon = "OK" if i < current_index else "~"
         status_text = "Used" if i < current_index else "Pending"
         
         return f"""
@@ -2644,9 +2644,9 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Image Metadata Section -->
                     {f'''
                     <div style='margin-bottom: 10px;'>
-                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>• Image Metadata:</div>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>- Image Metadata:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #3b82f6;'>
-                            {' • '.join(image_metadata)}
+                            {' - '.join(image_metadata)}
                         </div>
                     </div>
                     ''' if image_metadata else ''}
@@ -2654,9 +2654,9 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Content Rating Info -->
                     {f'''
                     <div style='margin-bottom: 10px;'>
-                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔞 Content Rating:</div>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>NSFW Content Rating:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #ef4444;'>
-                            {' • '.join(content_info)}
+                            {' - '.join(content_info)}
                         </div>
                     </div>
                     ''' if content_info else ''}
@@ -2664,7 +2664,7 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Lora Availability Section -->
                     {f'''
                     <div style='margin-bottom: 10px;'>
-                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>• Lora Availability:</div>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>- Lora Availability:</div>
                         <div style='background: #111827; padding: 4px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
                             {''.join(lora_info)}
                         </div>
@@ -2674,10 +2674,10 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Core Generation Parameters -->
                     {f'''
                     <div style='margin-bottom: 10px;'>
-                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>⚙️ Core Generation Settings:</div>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>CFG Core Generation Settings:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #10b981;'>
-                            {' • '.join(core_params[:4])}
-                            {('<br>' + ' • '.join(core_params[4:])) if len(core_params) > 4 else ''}
+                            {' - '.join(core_params[:4])}
+                            {('<br>' + ' - '.join(core_params[4:])) if len(core_params) > 4 else ''}
                         </div>
                     </div>
                     ''' if core_params else ''}
@@ -2685,10 +2685,10 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Advanced Parameters -->
                     {f'''
                     <div style='margin-bottom: 10px;'>
-                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔧 Advanced Settings:</div>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>ADV Advanced Settings:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #f59e0b;'>
-                            {' • '.join(advanced_params[:3])}
-                            {('<br>' + ' • '.join(advanced_params[3:])) if len(advanced_params) > 3 else ''}
+                            {' - '.join(advanced_params[:3])}
+                            {('<br>' + ' - '.join(advanced_params[3:])) if len(advanced_params) > 3 else ''}
                         </div>
                     </div>
                     ''' if advanced_params else ''}
@@ -2696,9 +2696,9 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Hires/Upscaling Parameters -->
                     {f'''
                     <div style='margin-bottom: 10px;'>
-                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔍 Hires/Upscaling:</div>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>SEARCH Hires/Upscaling:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
-                            {' • '.join(hires_params)}
+                            {' - '.join(hires_params)}
                         </div>
                     </div>
                     ''' if hires_params else ''}
@@ -2706,11 +2706,11 @@ class CivitaiRandomizerScript(scripts.Script):
                     <!-- Extra/Misc Parameters -->
                     {f'''
                     <div style='margin-bottom: 8px;'>
-                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>📎 Additional Parameters:</div>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>EXTRA Additional Parameters:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #6b7280;'>
-                            {' • '.join(extra_params[:4])}
-                            {('<br>' + ' • '.join(extra_params[4:8])) if len(extra_params) > 4 else ''}
-                            {('<br>' + ' • '.join(extra_params[8:])) if len(extra_params) > 8 else ''}
+                            {' - '.join(extra_params[:4])}
+                            {('<br>' + ' - '.join(extra_params[4:8])) if len(extra_params) > 4 else ''}
+                            {('<br>' + ' - '.join(extra_params[8:])) if len(extra_params) > 8 else ''}
                         </div>
                     </div>
                     ''' if extra_params else ''}
@@ -2719,12 +2719,12 @@ class CivitaiRandomizerScript(scripts.Script):
             
             <!-- Prompts Section -->
             <div style='margin-bottom: 10px;'>
-                <strong style='color: #4ade80; font-size: 13px;'>✨ Positive Prompt:</strong><br>
+                <strong style='color: #4ade80; font-size: 13px;'>POS Positive Prompt:</strong><br>
                 <span style='background: #1a3b1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #e6ffe6; border: 1px solid #2d5a2d; font-size: 12px;'>{positive_preview}</span>
             </div>
             
             <div>
-                <strong style='color: #ff6b6b; font-size: 13px;'>🚫 Negative Prompt:</strong><br>
+                <strong style='color: #ff6b6b; font-size: 13px;'>NEG Negative Prompt:</strong><br>
                 <span style='background: #3b1a1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #ffe6e6; border: 1px solid #5a2d2d; font-style: {"italic" if not negative_text else "normal"}; font-size: 12px;'>{negative_preview}</span>
             </div>
         </div>
@@ -2809,19 +2809,19 @@ script_instance = None
 def _create_main_controls_tab():
     """Create the main controls tab UI components"""
     with gr.TabItem("Main Controls"):
-        gr.HTML("<h3>🎲 Random Prompt Generation</h3>")
+        gr.HTML("<h3>RAND Random Prompt Generation</h3>")
         gr.HTML("<p>Fetch prompts from Civitai and manage your prompt queue</p>")
         
         # API Configuration Section
         with gr.Group():
-            gr.HTML("<h4>🔑 API Configuration</h4>")
+            gr.HTML("<h4>KEY API Configuration</h4>")
             with gr.Row():
-                test_api_btn = gr.Button("🔗 Test API Connection", variant="secondary")
+                test_api_btn = gr.Button("LINK Test API Connection", variant="secondary")
                 api_status = gr.HTML("Click to test API connection")
         
         # Fetch Controls Section
         with gr.Group():
-            gr.HTML("<h4>📥 Fetch Prompts from Civitai</h4>")
+            gr.HTML("<h4>FETCH Fetch Prompts from Civitai</h4>")
             with gr.Row():
                 nsfw_filter = gr.Radio(
                     choices=["Include All", "Exclude NSFW", "Only NSFW"],
@@ -2841,12 +2841,12 @@ def _create_main_controls_tab():
             )
             
             with gr.Row():
-                fetch_prompts_btn = gr.Button("📥 Fetch New Prompts", variant="primary")
-                clear_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary")
+                fetch_prompts_btn = gr.Button("FETCH Fetch New Prompts", variant="primary")
+                clear_cache_btn = gr.Button("DEL Clear Cache", variant="secondary")
         
         # Custom Prompt Controls
         with gr.Group():
-            gr.HTML("<h4>✏️ Custom Prompt Settings</h4>")
+            gr.HTML("<h4>EDIT Custom Prompt Settings</h4>")
             custom_prompt_start = gr.Textbox(
                 placeholder="Text to add at the beginning of each prompt",
                 label="Custom Start Text",
@@ -2867,9 +2867,9 @@ def _create_main_controls_tab():
         
         # Generate Controls
         with gr.Group():
-            gr.HTML("<h4>• Generate Prompts</h4>")
+            gr.HTML("<h4>- Generate Prompts</h4>")
             with gr.Row():
-                populate_btn = gr.Button("🎲 Populate Prompt Fields", variant="primary", size="lg")
+                populate_btn = gr.Button("RAND Populate Prompt Fields", variant="primary", size="lg")
             
             # Status displays
             cache_status = gr.HTML("Cache: No prompts loaded")
@@ -2882,21 +2882,21 @@ def _create_main_controls_tab():
         
         # Lora Availability Section
         with gr.Group():
-            gr.HTML("<h4>• Lora Availability Checker</h4>")
+            gr.HTML("<h4>- Lora Availability Checker</h4>")
             gr.HTML("<p>Scan and manage your local Lora files for availability checking</p>")
             
             with gr.Row():
-                scan_loras_btn = gr.Button("🔍 Scan Loras", variant="secondary")
-                force_rescan_btn = gr.Button("🔄 Force Rescan", variant="secondary")
-                clear_lora_cache_btn = gr.Button("🗑️ Clear Cache", variant="secondary")
+                scan_loras_btn = gr.Button("SEARCH Scan Loras", variant="secondary")
+                force_rescan_btn = gr.Button("REF Force Rescan", variant="secondary")
+                clear_lora_cache_btn = gr.Button("DEL Clear Cache", variant="secondary")
             
             lora_scan_status = gr.HTML("Lora database: Not scanned")
         
         # LORA Randomizer Section (kept for compatibility)
         with gr.Group():
-            gr.HTML("<h4>🎨 LORA Randomizer (Legacy)</h4>")
+            gr.HTML("<h4>ART LORA Randomizer (Legacy)</h4>")
             with gr.Row():
-                refresh_loras_btn = gr.Button("🔄 Refresh LORA List", variant="secondary")
+                refresh_loras_btn = gr.Button("REF Refresh LORA List", variant="secondary")
             
             lora_selection = gr.CheckboxGroup(
                 choices=["Loading..."],
@@ -2931,22 +2931,22 @@ def _create_main_controls_tab():
 def _create_queue_tab():
     """Create the queue tab UI components"""
     with gr.TabItem("Prompt Queue"):
-        gr.HTML("<h3>📋 Prompt Queue Management</h3>")
+        gr.HTML("<h3>LIST Prompt Queue Management</h3>")
         gr.HTML("<p>Browse and manage your fetched prompts with detailed metadata and Lora availability</p>")
         
         # Queue controls
         with gr.Row():
-            refresh_queue_btn = gr.Button("🔄 Refresh Queue", variant="secondary")
-            fetch_more_btn = gr.Button("📥 Fetch More", variant="primary")
-            reset_index_btn = gr.Button("↺ Reset Index", variant="secondary")
-            clear_queue_btn = gr.Button("🗑️ Clear Queue", variant="stop")
+            refresh_queue_btn = gr.Button("REF Refresh Queue", variant="secondary")
+            fetch_more_btn = gr.Button("FETCH Fetch More", variant="primary")
+            reset_index_btn = gr.Button("RST Reset Index", variant="secondary")
+            clear_queue_btn = gr.Button("DEL Clear Queue", variant="stop")
         
         # Queue information
         queue_info = gr.HTML("Queue: No prompts loaded")
         
         # Queue display
         with gr.Group():
-            gr.HTML("<h4>📜 Queue Contents</h4>")
+            gr.HTML("<h4>SCROLL Queue Contents</h4>")
             queue_display = gr.HTML(
                 value="<div style='padding: 20px; text-align: center; color: #888;'>No prompts in queue. Fetch some prompts to get started!</div>",
                 elem_id="civitai_queue_display"
@@ -2964,40 +2964,40 @@ def _create_queue_tab():
 def _create_checkpoint_management_tab():
     """Create the Checkpoint management tab UI components"""
     with gr.TabItem("Checkpoint Database"):
-        gr.HTML("<h3>• Local Checkpoint Database Management</h3>")
+        gr.HTML("<h3>- Local Checkpoint Database Management</h3>")
         gr.HTML("<p>Manage and browse your local Checkpoint collection with persistent SQLite storage.</p>")
         
         # Database status and controls
         with gr.Row():
             checkpoint_db_stats = gr.HTML("Database: Not loaded")
-            checkpoint_refresh_stats_btn = gr.Button("🔄 Refresh Stats", variant="secondary", size="sm")
+            checkpoint_refresh_stats_btn = gr.Button("REF Refresh Stats", variant="secondary", size="sm")
         
         with gr.Row():
-            checkpoint_scan_db_btn = gr.Button("🔍 Scan Checkpoints", variant="primary")
-            checkpoint_force_scan_btn = gr.Button("🔄 Force Rescan", variant="secondary")
+            checkpoint_scan_db_btn = gr.Button("SEARCH Scan Checkpoints", variant="primary")
+            checkpoint_force_scan_btn = gr.Button("REF Force Rescan", variant="secondary")
             enrich_checkpoints_btn = gr.Button("* Enrich with Civitai", variant="primary")
-            checkpoint_clear_db_btn = gr.Button("🗑️ Clear Database", variant="stop")
-            checkpoint_vacuum_db_btn = gr.Button("⚡ Optimize DB", variant="secondary")
+            checkpoint_clear_db_btn = gr.Button("DEL Clear Database", variant="stop")
+            checkpoint_vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary")
         
         # Search and filter controls
-        gr.HTML("<h4>🔎 Search & Filter</h4>")
+        gr.HTML("<h4>FIND Search & Filter</h4>")
         with gr.Row():
             checkpoint_search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
             checkpoint_search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
             checkpoint_search_folder = gr.Textbox(placeholder="Search by folder path...", label="Folder Filter", scale=2)
-            checkpoint_search_btn = gr.Button("🔍 Search", variant="primary", scale=1)
+            checkpoint_search_btn = gr.Button("SEARCH Search", variant="primary", scale=1)
         
         with gr.Row():
             checkpoint_filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
             checkpoint_filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
-            checkpoint_show_all_btn = gr.Button("📋 Show All", variant="secondary")
-            checkpoint_refresh_folders_btn = gr.Button("🔄 Refresh Folders", variant="secondary")
+            checkpoint_show_all_btn = gr.Button("LIST Show All", variant="secondary")
+            checkpoint_refresh_folders_btn = gr.Button("REF Refresh Folders", variant="secondary")
         
         # Folder filter dropdown (Excel-style)
         checkpoint_folder_filter = gr.CheckboxGroup(
             choices=[],
             value=[],
-            label="📁 Filter by Folders (uncheck to hide)",
+            label="FOLDER Filter by Folders (uncheck to hide)",
             elem_id="checkpoint_folder_filter",
             interactive=True
         )
@@ -3030,40 +3030,40 @@ def _create_checkpoint_management_tab():
 def _create_lora_management_tab():
     """Create the Lora management tab UI components"""
     with gr.TabItem("Lora Database"):
-        gr.HTML("<h3>📊 Local Lora Database Management</h3>")
+        gr.HTML("<h3>STATS Local Lora Database Management</h3>")
         gr.HTML("<p>Manage and browse your local Lora collection with persistent SQLite storage.</p>")
         
         # Database status and controls
         with gr.Row():
             db_stats = gr.HTML("Database: Not loaded")
-            refresh_stats_btn = gr.Button("🔄 Refresh Stats", variant="secondary", size="sm")
+            refresh_stats_btn = gr.Button("REF Refresh Stats", variant="secondary", size="sm")
         
         with gr.Row():
-            scan_db_btn = gr.Button("🔍 Scan Loras", variant="primary")
-            force_scan_btn = gr.Button("🔄 Force Rescan", variant="secondary")
+            scan_db_btn = gr.Button("SEARCH Scan Loras", variant="primary")
+            force_scan_btn = gr.Button("REF Force Rescan", variant="secondary")
             enrich_loras_btn = gr.Button("* Enrich with Civitai", variant="primary")
-            clear_db_btn = gr.Button("🗑️ Clear Database", variant="stop")
-            vacuum_db_btn = gr.Button("⚡ Optimize DB", variant="secondary")
+            clear_db_btn = gr.Button("DEL Clear Database", variant="stop")
+            vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary")
         
         # Search and filter controls
-        gr.HTML("<h4>🔎 Search & Filter</h4>")
+        gr.HTML("<h4>FIND Search & Filter</h4>")
         with gr.Row():
             search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
             search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
             search_folder = gr.Textbox(placeholder="Search by folder path...", label="Folder Filter", scale=2)
-            search_btn = gr.Button("🔍 Search", variant="primary", scale=1)
+            search_btn = gr.Button("SEARCH Search", variant="primary", scale=1)
         
         with gr.Row():
             filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
             filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
-            show_all_btn = gr.Button("📋 Show All", variant="secondary")
-            refresh_folders_btn = gr.Button("🔄 Refresh Folders", variant="secondary")
+            show_all_btn = gr.Button("LIST Show All", variant="secondary")
+            refresh_folders_btn = gr.Button("REF Refresh Folders", variant="secondary")
         
         # Folder filter dropdown (Excel-style)
         folder_filter = gr.CheckboxGroup(
             choices=[],
             value=[],
-            label="📁 Filter by Folders (uncheck to hide)",
+            label="FOLDER Filter by Folders (uncheck to hide)",
             elem_id="lora_folder_filter",
             interactive=True
         )
@@ -3206,7 +3206,7 @@ def _create_event_handlers():
             
             stats_html = f"""
             <div style='background: #1a1a1a; padding: 15px; border-radius: 8px; font-size: 13px; color: #ccc;'>
-                <h4 style='color: #fff; margin-top: 0;'>📊 Database Statistics</h4>
+                <h4 style='color: #fff; margin-top: 0;'>STATS Database Statistics</h4>
                 <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>
                     <div>
                         <strong>Total Loras:</strong> {total_loras}<br>
@@ -3278,7 +3278,7 @@ def _create_event_handlers():
             error_msg = f"Search error: {str(e)}"
             error_html = f"""
             <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
-                <h3>🚨 Search Error</h3>
+                <h3>ERR Search Error</h3>
                 <p>{error_msg}</p>
             </div>
             """
@@ -3326,7 +3326,7 @@ def _create_event_handlers():
                 if not folders:
                     return """
                     <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
-                        <h3>📁 No Folders Found</h3>
+                        <h3>FOLDER No Folders Found</h3>
                         <p>No Loras in database. Scan your Lora directory first.</p>
                     </div>
                     """
@@ -3339,7 +3339,7 @@ def _create_event_handlers():
                 folder_items.append(f"""
                 <div style='margin-bottom: 15px; padding: 10px; background: #1c2938; border-radius: 6px; 
                            text-align: center; color: #fff; border: 1px solid #444;'>
-                    <strong>📁 Folder Structure:</strong> {total_folders} folders, {total_files} files total
+                    <strong>FOLDER Folder Structure:</strong> {total_folders} folders, {total_files} files total
                 </div>
                 """)
                 
@@ -3349,7 +3349,7 @@ def _create_event_handlers():
                     <div style='margin-bottom: 8px; padding: 8px 12px; border: 1px solid #444; border-radius: 6px; 
                                background: #2a2a2a; color: #fff; display: flex; justify-content: space-between; align-items: center;'>
                         <div>
-                            <span style='color: #4ade80; font-family: monospace; font-size: 13px;'>📁 {folder_path}</span>
+                            <span style='color: #4ade80; font-family: monospace; font-size: 13px;'>FOLDER {folder_path}</span>
                         </div>
                         <div>
                             <span style='color: #ffd700; font-size: 11px; background: #333; padding: 2px 6px; border-radius: 3px;'>
@@ -3371,7 +3371,7 @@ def _create_event_handlers():
         except Exception as e:
             return f"""
             <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
-                <h3>🚨 Error Loading Folders</h3>
+                <h3>ERR Error Loading Folders</h3>
                 <p>{str(e)}</p>
             </div>
             """
@@ -3483,7 +3483,7 @@ def _create_event_handlers():
                 
                 stats_html = f"""
                 <div style='background: #1a1a1a; padding: 15px; border-radius: 8px; font-size: 13px; color: #ccc;'>
-                    <h4 style='color: #fff; margin-top: 0;'>• Checkpoint Database Statistics</h4>
+                    <h4 style='color: #fff; margin-top: 0;'>- Checkpoint Database Statistics</h4>
                     <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>
                         <div>
                             <strong>Total Checkpoints:</strong> {total_checkpoints}<br>
@@ -3545,7 +3545,7 @@ def _create_event_handlers():
             error_msg = f"Search error: {str(e)}"
             error_html = f"""
             <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
-                <h3>🚨 Search Error</h3>
+                <h3>ERR Search Error</h3>
                 <p>{error_msg}</p>
             </div>
             """
@@ -3803,7 +3803,7 @@ def on_ui_tabs():
         script_instance.load_config()
     
     with gr.Blocks() as civitai_tab:
-        gr.HTML("<h2>🎲 Civitai Prompt & LORA Randomizer</h2>")
+        gr.HTML("<h2>RAND Civitai Prompt & LORA Randomizer</h2>")
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
         with gr.Tabs():
@@ -3879,9 +3879,9 @@ def on_ui_tabs():
                             negativeField.dispatchEvent(new Event(eventType, {bubbles: true}));
                         });
                         
-                        console.log('[Civitai Randomizer] ✓ Main fields populated via bridge!');
+                        console.log('[Civitai Randomizer] OK Main fields populated via bridge!');
                     } else {
-                        console.log('[Civitai Randomizer] ✗ Could not find main prompt fields');
+                        console.log('[Civitai Randomizer] X Could not find main prompt fields');
                     }
                 }, 500);
                 
@@ -4072,7 +4072,7 @@ def on_ui_tabs():
         except Exception as e:
             print(f"[Civitai Randomizer] Error initializing Checkpoint folder filter: {e}")
         
-        print(f"[Civitai Randomizer] ✓ Tab interface with subtabs created successfully")
+        print(f"[Civitai Randomizer] OK Tab interface with subtabs created successfully")
     
     return [(civitai_tab, "Civitai Randomizer", "civitai_randomizer")]
 
