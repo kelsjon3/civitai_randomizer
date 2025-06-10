@@ -1,3 +1,4 @@
+# Updated: 2025-01-09 - Fixed f-string syntax error at line 1733
 import gradio as gr
 import modules.scripts as scripts
 import modules.processing as processing
