@@ -313,10 +313,10 @@ class CivitaiRandomizerScript(scripts.Script):
         # Add keyword search query parameter
         if keyword_filter and keyword_filter.strip():
             params['query'] = keyword_filter.strip()
-            print(f"[Search] Adding query parameter: '{keyword_filter.strip()}'")
+            print(f"[Search DEBUG] Adding query parameter: '{keyword_filter.strip()}'")
         
         # Debug output
-        print(f"[Civitai API] Request params: {params}")
+        print(f"[Civitai API DEBUG] Full request params: {params}")
         print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API param: {nsfw_param} (type: {type(nsfw_param)})")
         
         return headers, params, None
@@ -355,15 +355,20 @@ class CivitaiRandomizerScript(scripts.Script):
                 print(f"[Civitai API] Using nextPage URL: {next_page_url[:100]}...")
                 response = requests.get(next_page_url, headers=headers, timeout=30)
             else:
-                # Use standard API endpoint with parameters
-                print(f"[Civitai API] Request URL: https://civitai.com/api/v1/images")
+                # Determine which API endpoint to use based on search query
+                if keyword_filter and keyword_filter.strip():
+                    # Use models endpoint for text search
+                    api_url = 'https://civitai.com/api/v1/models'
+                    print(f"[Search] Using models endpoint for keyword search: '{keyword_filter.strip()}'")
+                else:
+                    # Use images endpoint for non-search requests
+                    api_url = 'https://civitai.com/api/v1/images'
+                    print(f"[API] Using images endpoint for browsing")
+                
+                print(f"[Civitai API] Request URL: {api_url}")
                 print(f"[Civitai API] Request params: {params}")
-                response = requests.get(
-                    'https://civitai.com/api/v1/images',
-                    headers=headers,
-                    params=params,
-                    timeout=30
-                )
+                response = requests.get(api_url, headers=headers, params=params, timeout=30)
+                print(f"[Search DEBUG] Actual request URL: {response.url}")
             
             print(f"[Civitai API] Headers present: {list(headers.keys())}")
             
@@ -397,6 +402,15 @@ class CivitaiRandomizerScript(scripts.Script):
             
             print(f"API response received - Total items: {len(items) if items else 0}")
             
+            # Check if we're dealing with models or images response
+            is_models_response = keyword_filter and keyword_filter.strip()
+            
+            if is_models_response:
+                print(f"[Search] Processing models response for search: '{keyword_filter.strip()}'")
+                # Convert models response to images format
+                items = self._extract_images_from_models(items)
+                print(f"[Search] Extracted {len(items)} images from models")
+            
             # Debug: Show comprehensive info about first few items
             if items and len(items) > 0:
                 print(f"[API Debug] Sample of first 3 items:")
@@ -407,7 +421,10 @@ class CivitaiRandomizerScript(scripts.Script):
                     print(f"  Item {i+1}: ID={item_id}, nsfw={nsfw_status}, nsfwLevel={nsfw_level}")
             
             if not items:
-                print("No items found in Civitai API response")
+                if is_models_response:
+                    print(f"No images found in models matching search: '{keyword_filter.strip()}'")
+                else:
+                    print("No items found in Civitai API response")
                 print(f"Available keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                 return []
             
@@ -3095,6 +3112,52 @@ class CivitaiRandomizerScript(scripts.Script):
             </div>
         </div>
         """
+
+    def _extract_images_from_models(self, models: List[dict]) -> List[dict]:
+        """Extract images from models API response and convert to image format"""
+        images = []
+        
+        for model in models:
+            if not model or not isinstance(model, dict):
+                continue
+                
+            model_versions = model.get('modelVersions', [])
+            for version in model_versions:
+                if not version or not isinstance(version, dict):
+                    continue
+                    
+                version_images = version.get('images', [])
+                for image in version_images:
+                    if not image or not isinstance(image, dict):
+                        continue
+                    
+                    # Convert model image to standard image format
+                    # Add model and version info to meta for prompt extraction
+                    image_copy = image.copy()
+                    
+                    # Ensure meta exists and has the prompt information
+                    if 'meta' not in image_copy or not image_copy['meta']:
+                        image_copy['meta'] = {}
+                    
+                    # If the image meta doesn't have a prompt, try to use model/version info
+                    if not image_copy['meta'].get('prompt'):
+                        # Create a basic prompt from model name and trained words
+                        model_name = model.get('name', '')
+                        trained_words = version.get('trainedWords', [])
+                        if trained_words:
+                            image_copy['meta']['prompt'] = ', '.join(trained_words)
+                        elif model_name:
+                            image_copy['meta']['prompt'] = model_name
+                    
+                    # Add model metadata for context
+                    image_copy['model_name'] = model.get('name', '')
+                    image_copy['model_type'] = model.get('type', '')
+                    image_copy['version_name'] = version.get('name', '')
+                    
+                    images.append(image_copy)
+        
+        print(f"[Search] Converted {len(models)} models to {len(images)} images")
+        return images
 
     def _validate_api_response(self, response) -> dict:
         """Validate and parse the API response"""
