@@ -2960,12 +2960,36 @@ class CivitaiRandomizerScript(scripts.Script):
                                negative_preview, negative_text):
         """Format HTML for a single search result item (no queue status)"""
         
+        # Extract key information for prominent display
+        username = prompt_data.get('username', 'Unknown Creator')
+        post_id = prompt_data.get('post_id', '')
+        image_id = prompt_data.get('id', '')
+        created_at = prompt_data.get('created_at', '')
+        
+        # Format creation date
+        formatted_date = 'Unknown Date'
+        if created_at:
+            try:
+                import datetime
+                dt = datetime.datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                formatted_date = dt.strftime('%Y-%m-%d %H:%M')
+            except:
+                formatted_date = created_at
+        
         return f"""
         <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px;
                    background: #2a2a2a; color: #fff;'>
-            <!-- Header with indicators -->
+            <!-- Header with creator info and indicators -->
             <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;'>
-                <strong style='color: #fff; font-size: 14px;'>Result #{i + 1}</strong>
+                <div style='display: flex; flex-direction: column; gap: 2px;'>
+                    <strong style='color: #fff; font-size: 14px;'>Result #{i + 1}</strong>
+                    <div style='font-size: 12px; color: #60a5fa;'>
+                        <strong>👤 {username}</strong>
+                        {f' • 📝 Post {post_id}' if post_id else ''}
+                        {f' • 🆔 {image_id}' if image_id else ''}
+                    </div>
+                    <div style='font-size: 11px; color: #9ca3af;'>📅 {formatted_date}</div>
+                </div>
                 <div style='display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>
                     {' '.join(indicators)}
                 </div>
@@ -3003,14 +3027,12 @@ class CivitaiRandomizerScript(scripts.Script):
                     ''' if content_info else ''}
                     
                     <!-- Lora Availability Section -->
-                    {'''
                     <div style='margin-bottom: 10px;'>
-                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>Lora Availability:</div>
-                        <div style='background: #111827; padding: 4px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
-                            ''' + (''.join(lora_info)) + '''
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>🔧 LoRA Information:</div>
+                        <div style='background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
+                            {(''.join(lora_info)) if lora_info else '<div style="color: #6b7280; font-size: 11px; font-style: italic;">No LoRAs detected in this prompt</div>'}
                         </div>
                     </div>
-                    ''' if lora_info else ''}
                     
                     <!-- Core Generation Parameters -->
                     {'''
