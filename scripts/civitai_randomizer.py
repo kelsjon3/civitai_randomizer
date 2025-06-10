@@ -751,6 +751,7 @@ class CivitaiRandomizerScript(scripts.Script):
                 ''')
                 
                 # Database migration: Add missing columns if they don't exist
+                self.auto_backup_before_migration()
                 self._migrate_database_schema(cursor)
                 
                 # Create indexes for fast lookups
@@ -859,10 +860,138 @@ class CivitaiRandomizerScript(scripts.Script):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('VACUUM')
-                print(f"[Lora DB] Database vacuumed successfully")
+                print(f"[Database] Database vacuumed successfully")
                 return True
         except Exception as e:
-            print(f"[Lora DB] Error vacuuming database: {e}")
+            print(f"[Database] Error vacuuming database: {e}")
+            return False
+    
+    def backup_database(self, backup_name: str = None) -> Dict[str, Any]:
+        """Create a backup of the database"""
+        try:
+            import datetime
+            import shutil
+            
+            if not os.path.exists(self.db_path):
+                return {"success": False, "message": "Database file does not exist"}
+            
+            # Create backups directory
+            backup_dir = os.path.join(os.path.dirname(__file__), "database_backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            # Generate backup filename
+            if not backup_name:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_name = f"lora_database_backup_{timestamp}.db"
+            elif not backup_name.endswith('.db'):
+                backup_name += '.db'
+            
+            backup_path = os.path.join(backup_dir, backup_name)
+            
+            # Create backup
+            shutil.copy2(self.db_path, backup_path)
+            
+            # Get backup size
+            backup_size = os.path.getsize(backup_path)
+            size_str = f"{backup_size / (1024**2):.1f} MB" if backup_size > 1024**2 else f"{backup_size / 1024:.1f} KB"
+            
+            print(f"[Database] Backup created: {backup_path} ({size_str})")
+            
+            return {
+                "success": True, 
+                "message": f"Backup created successfully: {backup_name} ({size_str})",
+                "backup_path": backup_path,
+                "backup_name": backup_name,
+                "backup_size": backup_size
+            }
+            
+        except Exception as e:
+            error_msg = f"Error creating backup: {str(e)}"
+            print(f"[Database] {error_msg}")
+            return {"success": False, "message": error_msg}
+    
+    def restore_database(self, backup_name: str) -> Dict[str, Any]:
+        """Restore database from backup"""
+        try:
+            import shutil
+            
+            backup_dir = os.path.join(os.path.dirname(__file__), "database_backups")
+            backup_path = os.path.join(backup_dir, backup_name)
+            
+            if not os.path.exists(backup_path):
+                return {"success": False, "message": f"Backup file not found: {backup_name}"}
+            
+            # Create backup of current database before restore
+            current_backup = self.backup_database("pre_restore_backup")
+            
+            # Restore from backup
+            shutil.copy2(backup_path, self.db_path)
+            
+            # Get restored database size
+            restored_size = os.path.getsize(self.db_path)
+            size_str = f"{restored_size / (1024**2):.1f} MB" if restored_size > 1024**2 else f"{restored_size / 1024:.1f} KB"
+            
+            print(f"[Database] Database restored from: {backup_name} ({size_str})")
+            
+            return {
+                "success": True, 
+                "message": f"Database restored successfully from {backup_name} ({size_str})",
+                "current_backup": current_backup.get("backup_name") if current_backup.get("success") else None
+            }
+            
+        except Exception as e:
+            error_msg = f"Error restoring backup: {str(e)}"
+            print(f"[Database] {error_msg}")
+            return {"success": False, "message": error_msg}
+    
+    def list_database_backups(self) -> List[Dict[str, Any]]:
+        """List all available database backups"""
+        try:
+            import datetime
+            
+            backup_dir = os.path.join(os.path.dirname(__file__), "database_backups")
+            
+            if not os.path.exists(backup_dir):
+                return []
+            
+            backups = []
+            for filename in os.listdir(backup_dir):
+                if filename.endswith('.db'):
+                    backup_path = os.path.join(backup_dir, filename)
+                    try:
+                        stat = os.stat(backup_path)
+                        backups.append({
+                            "filename": filename,
+                            "path": backup_path,
+                            "size": stat.st_size,
+                            "modified_time": stat.st_mtime,
+                            "modified_date": datetime.datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                        })
+                    except Exception as e:
+                        print(f"[Database] Error reading backup {filename}: {e}")
+            
+            # Sort by modification time (newest first)
+            backups.sort(key=lambda x: x["modified_time"], reverse=True)
+            return backups
+            
+        except Exception as e:
+            print(f"[Database] Error listing backups: {e}")
+            return []
+    
+    def auto_backup_before_migration(self):
+        """Create automatic backup before database migration"""
+        try:
+            if os.path.exists(self.db_path):
+                backup_result = self.backup_database("pre_migration_auto_backup")
+                if backup_result.get("success"):
+                    print(f"[Database] Auto-backup created before migration: {backup_result.get('backup_name')}")
+                    return True
+                else:
+                    print(f"[Database] Failed to create auto-backup: {backup_result.get('message')}")
+                    return False
+            return True
+        except Exception as e:
+            print(f"[Database] Error creating auto-backup: {e}")
             return False
 
     def get_database_stats(self) -> Dict[str, Any]:
@@ -3014,6 +3143,12 @@ def _create_checkpoint_management_tab():
             checkpoint_clear_db_btn = gr.Button("DEL Clear Database", variant="stop")
             checkpoint_vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary")
         
+        with gr.Row():
+            checkpoint_backup_db_btn = gr.Button("BAK Create Backup", variant="secondary")
+            checkpoint_list_backups_btn = gr.Button("LIST List Backups", variant="secondary")
+            checkpoint_restore_backup_name = gr.Textbox(placeholder="backup_filename.db", label="Backup to Restore", scale=2)
+            checkpoint_restore_db_btn = gr.Button("RST Restore Backup", variant="secondary")
+        
         # Search and filter controls
         gr.HTML("<h4>FIND Search & Filter</h4>")
         with gr.Row():
@@ -3049,6 +3184,10 @@ def _create_checkpoint_management_tab():
         'enrich_checkpoints_btn': enrich_checkpoints_btn,
         'checkpoint_clear_db_btn': checkpoint_clear_db_btn,
         'checkpoint_vacuum_db_btn': checkpoint_vacuum_db_btn,
+        'checkpoint_backup_db_btn': checkpoint_backup_db_btn,
+        'checkpoint_list_backups_btn': checkpoint_list_backups_btn,
+        'checkpoint_restore_backup_name': checkpoint_restore_backup_name,
+        'checkpoint_restore_db_btn': checkpoint_restore_db_btn,
         'checkpoint_search_name': checkpoint_search_name,
         'checkpoint_search_hash': checkpoint_search_hash,
         'checkpoint_search_folder': checkpoint_search_folder,
@@ -3079,6 +3218,12 @@ def _create_lora_management_tab():
             enrich_loras_btn = gr.Button("* Enrich with Civitai", variant="primary")
             clear_db_btn = gr.Button("DEL Clear Database", variant="stop")
             vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary")
+        
+        with gr.Row():
+            backup_db_btn = gr.Button("BAK Create Backup", variant="secondary")
+            list_backups_btn = gr.Button("LIST List Backups", variant="secondary")
+            restore_backup_name = gr.Textbox(placeholder="backup_filename.db", label="Backup to Restore", scale=2)
+            restore_db_btn = gr.Button("RST Restore Backup", variant="secondary")
         
         # Search and filter controls
         gr.HTML("<h4>FIND Search & Filter</h4>")
@@ -3115,6 +3260,10 @@ def _create_lora_management_tab():
         'enrich_loras_btn': enrich_loras_btn,
         'clear_db_btn': clear_db_btn,
         'vacuum_db_btn': vacuum_db_btn,
+        'backup_db_btn': backup_db_btn,
+        'list_backups_btn': list_backups_btn,
+        'restore_backup_name': restore_backup_name,
+        'restore_db_btn': restore_db_btn,
         'search_name': search_name,
         'search_hash': search_hash,
         'search_folder': search_folder,
@@ -3231,6 +3380,73 @@ def _create_event_handlers():
             return "Database vacuumed successfully"
         else:
             return "Error vacuuming database"
+    
+    def backup_database():
+        """Create a backup of the database"""
+        result = script_instance.backup_database()
+        if result.get("success"):
+            return result.get("message", "Backup created successfully")
+        else:
+            return f"Backup failed: {result.get('message', 'Unknown error')}"
+    
+    def list_database_backups():
+        """List all available database backups"""
+        try:
+            backups = script_instance.list_database_backups()
+            
+            if not backups:
+                return """
+                <div style='padding: 20px; text-align: center; color: #888; background: #1a1a1a; border-radius: 8px;'>
+                    <h3>No Backups Found</h3>
+                    <p>No database backups exist yet. Create a backup first.</p>
+                </div>
+                """
+            
+            backup_items = []
+            backup_items.append(f"""
+            <div style='background: #1a1a1a; padding: 15px; border-radius: 8px; font-size: 13px; color: #ccc;'>
+                <h4 style='color: #fff; margin-top: 0;'>Available Database Backups ({len(backups)} total)</h4>
+            """)
+            
+            for backup in backups:
+                size_str = f"{backup['size'] / (1024**2):.1f} MB" if backup['size'] > 1024**2 else f"{backup['size'] / 1024:.1f} KB"
+                
+                backup_items.append(f"""
+                <div style='margin: 10px 0; padding: 10px; background: #2a2a2a; border-radius: 6px; border-left: 3px solid #4CAF50;'>
+                    <div style='display: flex; justify-content: space-between; align-items: center;'>
+                        <div>
+                            <strong style='color: #4CAF50;'>{backup['filename']}</strong><br>
+                            <span style='color: #aaa;'>Created: {backup['modified_date']}</span>
+                        </div>
+                        <div style='text-align: right; color: #ccc;'>
+                            <strong>{size_str}</strong>
+                        </div>
+                    </div>
+                </div>
+                """)
+            
+            backup_items.append("</div>")
+            return ''.join(backup_items)
+            
+        except Exception as e:
+            return f"<div style='color: #ff6b6b;'>Error listing backups: {str(e)}</div>"
+    
+    def restore_database_from_backup(backup_name):
+        """Restore database from specified backup"""
+        if not backup_name:
+            return "Please enter a backup filename to restore"
+        
+        if not backup_name.strip():
+            return "Please enter a valid backup filename"
+        
+        result = script_instance.restore_database(backup_name.strip())
+        if result.get("success"):
+            message = result.get("message", "Database restored successfully")
+            if result.get("current_backup"):
+                message += f"\n\nPrevious database backed up as: {result.get('current_backup')}"
+            return message
+        else:
+            return f"Restore failed: {result.get('message', 'Unknown error')}"
     
     def get_database_stats():
         """Get and format database statistics"""
@@ -3848,6 +4064,9 @@ def _create_event_handlers():
         'force_rescan_and_refresh_folders': force_rescan_and_refresh_folders,
         'clear_lora_cache': clear_lora_cache,
         'vacuum_database': vacuum_database,
+        'backup_database': backup_database,
+        'list_database_backups': list_database_backups,
+        'restore_database_from_backup': restore_database_from_backup,
         'get_database_stats': get_database_stats,
         'search_loras': search_loras,
         'search_loras_with_filters': search_loras_with_filters,
@@ -4010,6 +4229,22 @@ def on_ui_tabs():
             outputs=[checkpoint_management_tab['checkpoint_results_info']]
         )
         
+        checkpoint_management_tab['checkpoint_backup_db_btn'].click(
+            event_handlers['backup_database'],
+            outputs=[checkpoint_management_tab['checkpoint_results_info']]
+        )
+        
+        checkpoint_management_tab['checkpoint_list_backups_btn'].click(
+            event_handlers['list_database_backups'],
+            outputs=[checkpoint_management_tab['checkpoint_display']]
+        )
+        
+        checkpoint_management_tab['checkpoint_restore_db_btn'].click(
+            event_handlers['restore_database_from_backup'],
+            inputs=[checkpoint_management_tab['checkpoint_restore_backup_name']],
+            outputs=[checkpoint_management_tab['checkpoint_results_info']]
+        )
+        
         checkpoint_management_tab['enrich_checkpoints_btn'].click(
             event_handlers['enrich_checkpoints_with_civitai'],
             outputs=[checkpoint_management_tab['checkpoint_results_info']]
@@ -4061,6 +4296,22 @@ def on_ui_tabs():
         
         lora_management_tab['vacuum_db_btn'].click(
             event_handlers['vacuum_database'],
+            outputs=[lora_management_tab['results_info']]
+        )
+        
+        lora_management_tab['backup_db_btn'].click(
+            event_handlers['backup_database'],
+            outputs=[lora_management_tab['results_info']]
+        )
+        
+        lora_management_tab['list_backups_btn'].click(
+            event_handlers['list_database_backups'],
+            outputs=[lora_management_tab['lora_display']]
+        )
+        
+        lora_management_tab['restore_db_btn'].click(
+            event_handlers['restore_database_from_backup'],
+            inputs=[lora_management_tab['restore_backup_name']],
             outputs=[lora_management_tab['results_info']]
         )
         
