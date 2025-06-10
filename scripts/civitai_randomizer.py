@@ -3925,11 +3925,21 @@ def _create_event_handlers():
             remaining = queue_length - current_index
             queue_status = f"Queue: {queue_length} total, {remaining} remaining (index: {current_index + 1})"
             
-            # Generate display for first few items
+            # Generate display for items starting from current index
             display_items = []
-            max_display = min(5, queue_length)  # Show max 5 items
+            max_display = min(10, queue_length)  # Show max 10 items
+            start_index = max(0, current_index - 2)  # Show 2 items before current, if available
             
-            for i in range(max_display):
+            # Add header showing range if not showing all items
+            if queue_length > max_display:
+                display_items.append(f"""
+                <div style='padding: 10px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 6px; margin-bottom: 15px; border: 1px solid #444;'>
+                    <strong>Showing items {start_index + 1}-{min(start_index + max_display, queue_length)} of {queue_length} total</strong>
+                    <br><small>Use "Reset Index" to return to the beginning</small>
+                </div>
+                """)
+            
+            for i in range(start_index, min(start_index + max_display, queue_length)):
                 prompt_data = script_instance.prompt_queue[i]
                 
                 # Generate all the formatting data
@@ -3957,11 +3967,13 @@ def _create_event_handlers():
                 display_items.append(item_html)
             
             # Add "show more" message if there are more items
-            if queue_length > max_display:
-                remaining_count = queue_length - max_display
+            items_shown = min(start_index + max_display, queue_length) - start_index
+            if queue_length > items_shown:
+                remaining_count = queue_length - items_shown
                 display_items.append(f"""
                 <div style='padding: 15px; text-align: center; color: #888; border: 1px dashed #444; border-radius: 8px; margin-top: 10px;'>
-                    ... and {remaining_count} more items in queue
+                    Showing items {start_index + 1}-{min(start_index + max_display, queue_length)} of {queue_length} total
+                    <br>... {remaining_count} more items in queue
                 </div>
                 """)
             
