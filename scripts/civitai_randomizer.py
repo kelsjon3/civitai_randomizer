@@ -258,7 +258,7 @@ class CivitaiRandomizerScript(scripts.Script):
     def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int, 
                           period_filter: str = "AllTime", username_filter: str = "", 
                           post_id_filter: int = None, model_id_filter: int = None, 
-                          use_next_page_url: bool = False) -> tuple:
+                          keyword_filter: str = "", use_next_page_url: bool = False) -> tuple:
         """Setup headers and parameters for Civitai API request"""
         # Setup headers
         headers = {}
@@ -310,6 +310,11 @@ class CivitaiRandomizerScript(scripts.Script):
         if model_id_filter and model_id_filter > 0:
             params['modelId'] = int(model_id_filter)
         
+        # Add keyword search query parameter
+        if keyword_filter and keyword_filter.strip():
+            params['query'] = keyword_filter.strip()
+            print(f"[Search] Adding query parameter: '{keyword_filter.strip()}'")
+        
         # Debug output
         print(f"[Civitai API] Request params: {params}")
         print(f"[NSFW Debug] Filter setting: '{nsfw_filter}' -> API param: {nsfw_param} (type: {type(nsfw_param)})")
@@ -341,7 +346,8 @@ class CivitaiRandomizerScript(scripts.Script):
             
             headers, params, next_page_url = self._setup_api_request(nsfw_filter, sort_method, limit, 
                                                                    period_filter, username_filter, 
-                                                                   post_id_filter, model_id_filter, is_fetch_more)
+                                                                   post_id_filter, model_id_filter, 
+                                                                   keyword_filter, is_fetch_more)
             
             # Make the API request
             if next_page_url:
@@ -437,11 +443,8 @@ class CivitaiRandomizerScript(scripts.Script):
                 
                 positive_prompt = meta.get('prompt', '')
                 if positive_prompt and isinstance(positive_prompt, str):
-                    # Apply keyword filtering to positive prompt
-                    if keyword_filter:
-                        keywords = [k.strip().lower() for k in keyword_filter.split(',')]
-                        if not any(keyword in positive_prompt.lower() for keyword in keywords):
-                            continue
+                    # Keyword filtering is now handled by the API query parameter
+                    # No need for client-side keyword filtering
                     
                     prompt_pair = self._create_prompt_pair(item, meta)
                     
