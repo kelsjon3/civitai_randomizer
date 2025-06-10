@@ -4024,17 +4024,17 @@ def _create_event_handlers():
             return error_msg, "Queue: Error", "", ""
     
     def get_prompts_and_update_queue(custom_start, custom_end, custom_negative):
-        """Generate prompts and update queue display"""
+        """Generate prompts and update search display"""
         try:
             status_msg, positive, negative = script_instance.generate_prompts_with_outputs(custom_start, custom_end, custom_negative)
             
-            # Update queue display
-            queue_status, queue_display_content = refresh_queue_display()
+            # Update search display
+            search_status, search_display_content, page, total_pages = refresh_search_display()
             
-            return status_msg, positive, negative, queue_status, queue_display_content
+            return status_msg, positive, negative, search_status, search_display_content
         except Exception as e:
             error_msg = f"Error generating prompts: {str(e)}"
-            return error_msg, "", "", "Queue: Error", "Error loading queue"
+            return error_msg, "", "", "Search: Error", "Error loading search results"
     
     # Queue Event Handlers
     def refresh_search_display(page: int = 1):
@@ -4309,7 +4309,7 @@ def on_ui_tabs():
         main_controls_tab['populate_btn'].click(
             event_handlers['get_prompts_and_update_queue'],
             inputs=[main_controls_tab['custom_prompt_start'], main_controls_tab['custom_prompt_end'], main_controls_tab['custom_negative_prompt']],
-            outputs=[main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']],
+            outputs=[main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], search_tab['search_info'], search_tab['search_display']],
             _js="""
             function(custom_start, custom_end, custom_negative) {
                 console.log('[Civitai Randomizer] Populate button clicked with JS!');
