@@ -1712,11 +1712,11 @@ class CivitaiRandomizerScript(scripts.Script):
                 </div>
                 
                 <!-- Civitai enriched content -->
-                {f'''
+                {'''
                 <div style='display: flex; gap: 15px; margin-bottom: 12px;'>
                     <!-- Images column -->
                     <div style='flex-shrink: 0;'>
-                        {checkpoint_images_html}
+                        ''' + checkpoint_images_html + '''
                     </div>
                     
                     <!-- Info column -->
@@ -1724,29 +1724,29 @@ class CivitaiRandomizerScript(scripts.Script):
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Creator & Stats:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151; line-height: 1.4;'>
-                                <strong>Creator:</strong> {civitai_creator if civitai_creator else "Unknown"}<br>
-                                <strong>Downloads:</strong> {civitai_downloads:,} | <strong>Rating:</strong> {"*" * int(civitai_rating)}{"*" * (5-int(civitai_rating))} ({civitai_rating:.1f}/5, {civitai_rating_count} votes)<br>
-                                <strong>Description:</strong> {(civitai_description[:100] + "...") if len(civitai_description) > 100 else (civitai_description or "No description")}
+                                <strong>Creator:</strong> ''' + (civitai_creator if civitai_creator else "Unknown") + '''<br>
+                                <strong>Downloads:</strong> ''' + f"{civitai_downloads:,}" + ''' | <strong>Rating:</strong> ''' + ("*" * int(civitai_rating) + "☆" * (5-int(civitai_rating))) + f" ({civitai_rating:.1f}/5, {civitai_rating_count} votes)" + '''<br>
+                                <strong>Description:</strong> ''' + ((civitai_description[:100] + "...") if len(civitai_description) > 100 else (civitai_description or "No description")) + '''
                             </div>
                         </div>
                         
-                        {f'''
+                        ''' + ('''
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Trigger Words:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
-                                {", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified"}
+                                ''' + (", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified") + '''
                             </div>
                         </div>
-                        ''' if civitai_trigger_words else ""}
+                        ''' if civitai_trigger_words else "") + '''
                         
-                        {f'''
+                        ''' + ('''
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Tags:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
-                                {", ".join(['<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">' + tag + '</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags"}
+                                ''' + (", ".join(['<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">' + tag + '</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags") + '''
                             </div>
                         </div>
-                        ''' if civitai_tags else ""}
+                        ''' if civitai_tags else "") + '''
                     </div>
                 </div>
                 ''' if has_civitai else ""}
@@ -1759,25 +1759,25 @@ class CivitaiRandomizerScript(scripts.Script):
                 </div>
                 
                 <!-- Hash info -->
-                {f'''
+                {'''
                 <div style='margin-bottom: 8px;'>
                     <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>SHA256 Hash:</strong></div>
                     <code style='background: #1a1a1a; padding: 4px 6px; border-radius: 4px; font-size: 10px; 
-                                color: #10b981; border: 1px solid #374151; word-break: break-all;'>{checkpoint.get('sha256')}</code>
+                                color: #10b981; border: 1px solid #374151; word-break: break-all;'>''' + str(checkpoint.get('sha256')) + '''</code>
                 </div>
                 ''' if has_hash else ''}
                 
                 <!-- Metadata info -->
-                {f'''
+                {'''
                 <div style='margin-bottom: 8px;'>
                     <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>Metadata:</strong></div>
                     <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; 
                                border: 1px solid #374151; line-height: 1.4;'>
-                        {f"<strong>Model ID:</strong> {model_id}<br>" if model_id else ""}
-                        {f"<strong>Name:</strong> {metadata.get('name', '')}<br>" if metadata.get('name') else ""}
-                        {f"<strong>Description:</strong> {description}<br>" if description else ""}
-                        {f"<strong>Base Model:</strong> {metadata.get('baseModel', '')}<br>" if metadata.get('baseModel') else ""}
-                        {f"<strong>SD Version:</strong> {metadata.get('sd version', '')}" if metadata.get('sd version') else ""}
+                        ''' + (f"<strong>Model ID:</strong> {model_id}<br>" if model_id else "") + '''
+                        ''' + (f"<strong>Name:</strong> {metadata.get('name', '')}<br>" if metadata.get('name') else "") + '''
+                        ''' + (f"<strong>Description:</strong> {description}<br>" if description else "") + '''
+                        ''' + (f"<strong>Base Model:</strong> {metadata.get('baseModel', '')}<br>" if metadata.get('baseModel') else "") + '''
+                        ''' + (f"<strong>SD Version:</strong> {metadata.get('sd version', '')}" if metadata.get('sd version') else "") + '''
                     </div>
                 </div>
                 ''' if has_metadata and metadata else ''}
@@ -2258,11 +2258,11 @@ class CivitaiRandomizerScript(scripts.Script):
                 </div>
                 
                 <!-- Civitai enriched content -->
-                {f'''
+                {'''
                 <div style='display: flex; gap: 15px; margin-bottom: 12px;'>
                     <!-- Images column -->
                     <div style='flex-shrink: 0;'>
-                        {images_html}
+                        ''' + images_html + '''
                     </div>
                     
                     <!-- Info column -->
@@ -2270,29 +2270,29 @@ class CivitaiRandomizerScript(scripts.Script):
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Creator & Stats:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151; line-height: 1.4;'>
-                                <strong>Creator:</strong> {civitai_creator if civitai_creator else "Unknown"}<br>
-                                <strong>Downloads:</strong> {civitai_downloads:,} | <strong>Rating:</strong> {"*" * int(civitai_rating)}{"*" * (5-int(civitai_rating))} ({civitai_rating:.1f}/5, {civitai_rating_count} votes)<br>
-                                <strong>Description:</strong> {(civitai_description[:100] + "...") if len(civitai_description) > 100 else (civitai_description or "No description")}
+                                <strong>Creator:</strong> ''' + (civitai_creator if civitai_creator else "Unknown") + '''<br>
+                                <strong>Downloads:</strong> ''' + f"{civitai_downloads:,}" + ''' | <strong>Rating:</strong> ''' + ("*" * int(civitai_rating) + "☆" * (5-int(civitai_rating))) + f" ({civitai_rating:.1f}/5, {civitai_rating_count} votes)" + '''<br>
+                                <strong>Description:</strong> ''' + ((civitai_description[:100] + "...") if len(civitai_description) > 100 else (civitai_description or "No description")) + '''
                             </div>
                         </div>
                         
-                        {f'''
+                        ''' + ('''
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Trigger Words:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
-                                {", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified"}
+                                ''' + (", ".join(civitai_trigger_words[:10]) if civitai_trigger_words else "No trigger words specified") + '''
                             </div>
                         </div>
-                        ''' if civitai_trigger_words else ""}
+                        ''' if civitai_trigger_words else "") + '''
                         
-                        {f'''
+                        ''' + ('''
                         <div style='margin-bottom: 8px;'>
                             <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>- Tags:</strong></div>
                             <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; border: 1px solid #374151;'>
-                                {", ".join(['<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">' + tag + '</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags"}
+                                ''' + (", ".join(['<span style="background: #374151; padding: 1px 4px; border-radius: 2px; margin: 1px;">' + tag + '</span>' for tag in civitai_tags[:8]]) if civitai_tags else "No tags") + '''
                             </div>
                         </div>
-                        ''' if civitai_tags else ""}
+                        ''' if civitai_tags else "") + '''
                     </div>
                 </div>
                 ''' if has_civitai else ""}
@@ -2305,25 +2305,25 @@ class CivitaiRandomizerScript(scripts.Script):
                 </div>
                 
                 <!-- Hash info -->
-                {f'''
+                {'''
                 <div style='margin-bottom: 8px;'>
                     <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>SHA256 Hash:</strong></div>
                     <code style='background: #1a1a1a; padding: 4px 6px; border-radius: 4px; font-size: 10px; 
-                                color: #10b981; border: 1px solid #374151; word-break: break-all;'>{lora.get('sha256')}</code>
+                                color: #10b981; border: 1px solid #374151; word-break: break-all;'>''' + str(lora.get('sha256')) + '''</code>
                 </div>
                 ''' if has_hash else ''}
                 
                 <!-- Metadata info -->
-                {f'''
+                {'''
                 <div style='margin-bottom: 8px;'>
                     <div style='font-size: 11px; color: #9ca3af; margin-bottom: 2px;'><strong>Metadata:</strong></div>
                     <div style='background: #1a1a1a; padding: 6px; border-radius: 4px; font-size: 11px; 
                                border: 1px solid #374151; line-height: 1.4;'>
-                        {f"<strong>Model ID:</strong> {model_id}<br>" if model_id else ""}
-                        {f"<strong>Name:</strong> {metadata.get('name', '')}<br>" if metadata.get('name') else ""}
-                        {f"<strong>Description:</strong> {description}<br>" if description else ""}
-                        {f"<strong>Base Model:</strong> {metadata.get('baseModel', '')}<br>" if metadata.get('baseModel') else ""}
-                        {f"<strong>SD Version:</strong> {metadata.get('sd version', '')}" if metadata.get('sd version') else ""}
+                        ''' + (f"<strong>Model ID:</strong> {model_id}<br>" if model_id else "") + '''
+                        ''' + (f"<strong>Name:</strong> {metadata.get('name', '')}<br>" if metadata.get('name') else "") + '''
+                        ''' + (f"<strong>Description:</strong> {description}<br>" if description else "") + '''
+                        ''' + (f"<strong>Base Model:</strong> {metadata.get('baseModel', '')}<br>" if metadata.get('baseModel') else "") + '''
+                        ''' + (f"<strong>SD Version:</strong> {metadata.get('sd version', '')}" if metadata.get('sd version') else "") + '''
                     </div>
                 </div>
                 ''' if has_metadata and metadata else ''}
@@ -2643,75 +2643,75 @@ class CivitaiRandomizerScript(scripts.Script):
                     </div>
                     
                     <!-- Image Metadata Section -->
-                    {f'''
+                    {'''
                     <div style='margin-bottom: 10px;'>
                         <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>- Image Metadata:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #3b82f6;'>
-                            {' - '.join(image_metadata)}
+                            ''' + (' - '.join(image_metadata)) + '''
                         </div>
                     </div>
                     ''' if image_metadata else ''}
                     
                     <!-- Content Rating Info -->
-                    {f'''
+                    {'''
                     <div style='margin-bottom: 10px;'>
                         <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>NSFW Content Rating:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #ef4444;'>
-                            {' - '.join(content_info)}
+                            ''' + (' - '.join(content_info)) + '''
                         </div>
                     </div>
                     ''' if content_info else ''}
                     
                     <!-- Lora Availability Section -->
-                    {f'''
+                    {'''
                     <div style='margin-bottom: 10px;'>
                         <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>- Lora Availability:</div>
                         <div style='background: #111827; padding: 4px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
-                            {''.join(lora_info)}
+                            ''' + (''.join(lora_info)) + '''
                         </div>
                     </div>
                     ''' if lora_info else ''}
                     
                     <!-- Core Generation Parameters -->
-                    {f'''
+                    {'''
                     <div style='margin-bottom: 10px;'>
                         <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>CFG Core Generation Settings:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #10b981;'>
-                            {' - '.join(core_params[:4])}
-                            {('<br>' + ' - '.join(core_params[4:])) if len(core_params) > 4 else ''}
+                            ''' + (' - '.join(core_params[:4])) + '''
+                            ''' + (('<br>' + ' - '.join(core_params[4:])) if len(core_params) > 4 else '') + '''
                         </div>
                     </div>
                     ''' if core_params else ''}
                     
                     <!-- Advanced Parameters -->
-                    {f'''
+                    {'''
                     <div style='margin-bottom: 10px;'>
                         <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>ADV Advanced Settings:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #f59e0b;'>
-                            {' - '.join(advanced_params[:3])}
-                            {('<br>' + ' - '.join(advanced_params[3:])) if len(advanced_params) > 3 else ''}
+                            ''' + (' - '.join(advanced_params[:3])) + '''
+                            ''' + (('<br>' + ' - '.join(advanced_params[3:])) if len(advanced_params) > 3 else '') + '''
                         </div>
                     </div>
                     ''' if advanced_params else ''}
                     
                     <!-- Hires/Upscaling Parameters -->
-                    {f'''
+                    {'''
                     <div style='margin-bottom: 10px;'>
                         <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>SEARCH Hires/Upscaling:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
-                            {' - '.join(hires_params)}
+                            ''' + (' - '.join(hires_params)) + '''
                         </div>
                     </div>
                     ''' if hires_params else ''}
                     
                     <!-- Extra/Misc Parameters -->
-                    {f'''
+                    {'''
                     <div style='margin-bottom: 8px;'>
                         <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>EXTRA Additional Parameters:</div>
                         <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #6b7280;'>
-                            {' - '.join(extra_params[:4])}
-                            {('<br>' + ' - '.join(extra_params[4:8])) if len(extra_params) > 4 else ''}
-                            {('<br>' + ' - '.join(extra_params[8:])) if len(extra_params) > 8 else ''}
+                            ''' + (' - '.join(extra_params[:4])) + '''
+                            ''' + (('<br>' + ' - '.join(extra_params[4:8])) if len(extra_params) > 4 else '') + '''
+                            ''' + (('<br>' + ' - '.join(extra_params[8:])) if len(extra_params) > 8 else '') + '''
                         </div>
                     </div>
                     ''' if extra_params else ''}
