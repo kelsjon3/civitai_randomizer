@@ -3105,6 +3105,13 @@ def _create_queue_tab():
             reset_index_btn = gr.Button("Reset Index", variant="secondary", size="sm")
             clear_queue_btn = gr.Button("Clear Queue", variant="stop", size="sm")
         
+        # Page navigation controls
+        with gr.Row():
+            prev_page_btn = gr.Button("‹ Previous Page", variant="secondary", size="sm")
+            current_page_num = gr.Number(value=1, label="Page", minimum=1, precision=0, scale=1, interactive=True)
+            next_page_btn = gr.Button("Next Page ›", variant="secondary", size="sm")
+            go_to_page_btn = gr.Button("Go", variant="primary", size="sm", scale=0)
+        
         # Queue information
         queue_info = gr.HTML("Queue: No prompts loaded")
         
@@ -3121,6 +3128,10 @@ def _create_queue_tab():
         'fetch_prompts_btn': fetch_prompts_btn,
         'reset_index_btn': reset_index_btn,
         'clear_queue_btn': clear_queue_btn,
+        'prev_page_btn': prev_page_btn,
+        'current_page_num': current_page_num,
+        'next_page_btn': next_page_btn,
+        'go_to_page_btn': go_to_page_btn,
         'queue_info': queue_info,
         'queue_display': queue_display
     }
@@ -3911,8 +3922,8 @@ def _create_event_handlers():
             return error_msg, "", "", "Queue: Error", "Error loading queue"
     
     # Queue Event Handlers
-    def refresh_queue_display():
-        """Refresh the queue display"""
+    def refresh_queue_display(page: int = 1):
+        """Refresh the queue display with pagination support"""
         try:
             queue_length = len(script_instance.prompt_queue)
             current_index = script_instance.queue_index
@@ -3925,21 +3936,64 @@ def _create_event_handlers():
             remaining = queue_length - current_index
             queue_status = f"Queue: {queue_length} total, {remaining} remaining (index: {current_index + 1})"
             
-            # Generate display for items starting from current index
-            display_items = []
-            max_display = min(10, queue_length)  # Show max 10 items
-            start_index = max(0, current_index - 2)  # Show 2 items before current, if available
+            # Pagination logic
+            items_per_page = 10
+            total_pages = (queue_length + items_per_page - 1) // items_per_page  # Ceiling division
+            page = max(1, min(page, total_pages))  # Clamp page to valid range
+            start_index = (page - 1) * items_per_page
+            end_index = min(start_index + items_per_page, queue_length)
             
-            # Add header showing range if not showing all items
-            if queue_length > max_display:
+            display_items = []
+            
+            # Add pagination header
+            if total_pages > 1:
+                # Create page navigation
+                page_buttons = []
+                
+                # Previous button
+                if page > 1:
+                    page_buttons.append(f'<button onclick="navigate_to_page({page - 1})" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">‹ Prev</button>')
+                
+                # Page numbers
+                start_page = max(1, page - 2)
+                end_page = min(total_pages, page + 2)
+                
+                if start_page > 1:
+                    page_buttons.append(f'<button onclick="navigate_to_page(1)" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">1</button>')
+                    if start_page > 2:
+                        page_buttons.append('<span style="margin: 0 5px; color: #888;">...</span>')
+                
+                for p in range(start_page, end_page + 1):
+                    if p == page:
+                        page_buttons.append(f'<button style="padding: 5px 10px; margin: 0 2px; background: #007acc; color: white; border: 1px solid #0099ff; border-radius: 4px; font-weight: bold;">{p}</button>')
+                    else:
+                        page_buttons.append(f'<button onclick="navigate_to_page({p})" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">{p}</button>')
+                
+                if end_page < total_pages:
+                    if end_page < total_pages - 1:
+                        page_buttons.append('<span style="margin: 0 5px; color: #888;">...</span>')
+                    page_buttons.append(f'<button onclick="navigate_to_page({total_pages})" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">{total_pages}</button>')
+                
+                # Next button
+                if page < total_pages:
+                    page_buttons.append(f'<button onclick="navigate_to_page({page + 1})" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">Next ›</button>')
+                
+                pagination_html = ' '.join(page_buttons)
+                
                 display_items.append(f"""
-                <div style='padding: 10px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 6px; margin-bottom: 15px; border: 1px solid #444;'>
-                    <strong>Showing items {start_index + 1}-{min(start_index + max_display, queue_length)} of {queue_length} total</strong>
-                    <br><small>Use "Reset Index" to return to the beginning</small>
+                <div style='padding: 15px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 6px; margin-bottom: 15px; border: 1px solid #444;'>
+                    <div style='margin-bottom: 10px;'>
+                        <strong>Showing items {start_index + 1}-{end_index} of {queue_length} total</strong>
+                        <span style='margin-left: 20px; color: #888;'>Page {page} of {total_pages}</span>
+                    </div>
+                    <div style='margin-top: 10px; color: #888; font-size: 12px;'>
+                        Use the page navigation controls above to browse through all {total_pages} pages
+                    </div>
                 </div>
                 """)
             
-            for i in range(start_index, min(start_index + max_display, queue_length)):
+            # Generate items for current page
+            for i in range(start_index, end_index):
                 prompt_data = script_instance.prompt_queue[i]
                 
                 # Generate all the formatting data
@@ -3966,24 +4020,26 @@ def _create_event_handlers():
                 
                 display_items.append(item_html)
             
-            # Add "show more" message if there are more items
-            items_shown = min(start_index + max_display, queue_length) - start_index
-            if queue_length > items_shown:
-                remaining_count = queue_length - items_shown
+            # Add pagination footer if multiple pages
+            if total_pages > 1:
                 display_items.append(f"""
-                <div style='padding: 15px; text-align: center; color: #888; border: 1px dashed #444; border-radius: 8px; margin-top: 10px;'>
-                    Showing items {start_index + 1}-{min(start_index + max_display, queue_length)} of {queue_length} total
-                    <br>... {remaining_count} more items in queue
+                <div style='padding: 10px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 6px; margin-top: 15px; border: 1px solid #444;'>
+                    <div style='margin-bottom: 5px; font-size: 12px; color: #888;'>
+                        Page {page} of {total_pages} - {end_index - start_index} items on this page
+                    </div>
+                    <div style='font-size: 11px; color: #666;'>
+                        Use the Previous/Next Page buttons or enter a page number above to navigate
+                    </div>
                 </div>
                 """)
             
             queue_display_content = ''.join(display_items)
             
-            return queue_status, queue_display_content
+            return queue_status, queue_display_content, page, total_pages
             
         except Exception as e:
             print(f"[Queue Display] Error: {e}")
-            return f"Queue: Error - {str(e)}", "<div style='color: #ff6b6b;'>Error loading queue display</div>"
+            return f"Queue: Error - {str(e)}", "<div style='color: #ff6b6b;'>Error loading queue display</div>", 1, 1
     
     def clear_and_update_queue():
         """Clear queue and update displays"""
@@ -3996,14 +4052,14 @@ def _create_event_handlers():
         queue_info = "Queue: Empty"
         queue_display = "<div style='padding: 20px; text-align: center; color: #888;'>Queue cleared!</div>"
         
-        return cache_status, queue_status, queue_info, queue_display
+        return cache_status, queue_status, queue_info, queue_display, 1
     
     def reset_queue_index():
         """Reset queue index to beginning"""
         script_instance.queue_index = 0
         queue_status = f"Queue: {len(script_instance.prompt_queue)} total, {len(script_instance.prompt_queue)} remaining (index reset)"
-        queue_status_info, queue_display = refresh_queue_display()
-        return queue_status, queue_status_info, queue_display
+        queue_status_info, queue_display, current_page, total_pages = refresh_queue_display(1)
+        return queue_status, queue_status_info, queue_display, current_page
     
     def fetch_prompts_smart(nsfw_filter, keyword_filter, sort_method):
         """Smart fetch: initial fetch if empty, fetch more if queue exists"""
@@ -4038,15 +4094,38 @@ def _create_event_handlers():
             cache_status = f"Cache: {len(script_instance.cached_prompts)} prompts loaded"
             queue_status = f"Queue: {len(script_instance.prompt_queue)} prompts, index: {script_instance.queue_index}"
             
-            # Update queue display
-            queue_status_info, queue_display = refresh_queue_display()
+            # Update queue display (page 1 for new fetches)
+            queue_status_info, queue_display, current_page, total_pages = refresh_queue_display(1)
             
-            return cache_status, queue_status, "", "", queue_status_info, queue_display
+            return cache_status, queue_status, "", "", queue_status_info, queue_display, current_page
             
         except Exception as e:
             error_msg = f"Error fetching prompts: {str(e)}"
             print(f"[Smart Fetch] Exception: {e}")
-            return error_msg, "Queue: Error", "", "", "Queue: Error", "Error loading queue"
+            return error_msg, "Queue: Error", "", "", "Queue: Error", "Error loading queue", 1
+
+    def navigate_to_page(page_num, current_page):
+        """Navigate to a specific page in the queue"""
+        try:
+            page = int(page_num) if page_num else current_page
+            queue_status_info, queue_display, new_page, total_pages = refresh_queue_display(page)
+            return queue_status_info, queue_display, new_page
+        except Exception as e:
+            print(f"[Navigate] Error: {e}")
+            return "Queue: Error", "Error loading page", current_page
+
+    def go_to_previous_page(current_page):
+        """Go to previous page"""
+        new_page = max(1, current_page - 1)
+        return navigate_to_page(new_page, current_page)
+
+    def go_to_next_page(current_page):
+        """Go to next page"""
+        # Calculate max page based on current queue length
+        queue_length = len(script_instance.prompt_queue)
+        max_page = (queue_length + 9) // 10  # Ceiling division for 10 items per page
+        new_page = min(max_page, current_page + 1)
+        return navigate_to_page(new_page, current_page)
     
     # Return all handlers as a dictionary
     return {
@@ -4087,7 +4166,10 @@ def _create_event_handlers():
         'refresh_queue_display': refresh_queue_display,
         'clear_and_update_queue': clear_and_update_queue,
         'reset_queue_index': reset_queue_index,
-        'fetch_prompts_smart': fetch_prompts_smart
+        'fetch_prompts_smart': fetch_prompts_smart,
+        'navigate_to_page': navigate_to_page,
+        'go_to_previous_page': go_to_previous_page,
+        'go_to_next_page': go_to_next_page
     }
 
 def on_ui_tabs():
@@ -4179,24 +4261,44 @@ def on_ui_tabs():
         
         # Queue Tab Event Bindings
         queue_tab['refresh_queue_btn'].click(
-            event_handlers['refresh_queue_display'],
-            outputs=[queue_tab['queue_info'], queue_tab['queue_display']]
+            fn=lambda page: event_handlers['refresh_queue_display'](page),
+            inputs=[queue_tab['current_page_num']],
+            outputs=[queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
         )
         
         queue_tab['fetch_prompts_btn'].click(
             event_handlers['fetch_prompts_smart'],
             inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']]
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
         )
         
         queue_tab['reset_index_btn'].click(
             event_handlers['reset_queue_index'],
-            outputs=[main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
+            outputs=[main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
         )
         
         queue_tab['clear_queue_btn'].click(
             event_handlers['clear_and_update_queue'],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display']]
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+        )
+        
+        # Page navigation bindings
+        queue_tab['prev_page_btn'].click(
+            event_handlers['go_to_previous_page'],
+            inputs=[queue_tab['current_page_num']],
+            outputs=[queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+        )
+        
+        queue_tab['next_page_btn'].click(
+            event_handlers['go_to_next_page'],
+            inputs=[queue_tab['current_page_num']],
+            outputs=[queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+        )
+        
+        queue_tab['go_to_page_btn'].click(
+            event_handlers['navigate_to_page'],
+            inputs=[queue_tab['current_page_num'], queue_tab['current_page_num']],
+            outputs=[queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
         )
         
         # Checkpoint Management Tab Event Bindings
