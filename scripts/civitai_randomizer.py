@@ -4285,21 +4285,67 @@ def _create_event_handlers():
                 </div>
                 <script>
                 function civitai_navigate_to_page(pageNum) {{
-                    // Find the page number input and set its value
-                    const pageInput = document.querySelector('label:contains("Page") input[type="number"]') || 
-                                     document.querySelector('input[type="number"][value]');
+                    console.log('Navigating to page:', pageNum);
+                    
+                    // Find the page number input by looking for inputs with specific attributes or context
+                    let pageInput = null;
+                    
+                    // Method 1: Find by looking for number inputs near "Page" text
+                    const labels = Array.from(document.querySelectorAll('label'));
+                    for (const label of labels) {{
+                        if (label.textContent.includes('Page')) {{
+                            const input = label.querySelector('input[type="number"]');
+                            if (input) {{
+                                pageInput = input;
+                                break;
+                            }}
+                        }}
+                    }}
+                    
+                    // Method 2: Find number input in the same container as Go button
+                    if (!pageInput) {{
+                        const goButtons = Array.from(document.querySelectorAll('button')).filter(btn => btn.textContent.trim() === 'Go');
+                        for (const goBtn of goButtons) {{
+                            const container = goBtn.closest('div');
+                            if (container) {{
+                                const numberInput = container.querySelector('input[type="number"]');
+                                if (numberInput) {{
+                                    pageInput = numberInput;
+                                    break;
+                                }}
+                            }}
+                        }}
+                    }}
+                    
+                    // Method 3: Fallback - find any number input that looks like a page number
+                    if (!pageInput) {{
+                        const numberInputs = document.querySelectorAll('input[type="number"]');
+                        for (const input of numberInputs) {{
+                            if (input.value && parseInt(input.value) >= 1 && parseInt(input.value) <= 100) {{
+                                pageInput = input;
+                                break;
+                            }}
+                        }}
+                    }}
+                    
                     if (pageInput) {{
+                        console.log('Found page input:', pageInput);
                         pageInput.value = pageNum;
+                        
                         // Trigger change events
                         pageInput.dispatchEvent(new Event('input', {{bubbles: true}}));
                         pageInput.dispatchEvent(new Event('change', {{bubbles: true}}));
                         
                         // Find and click the "Go" button
-                        const goButton = document.querySelector('button:contains("Go")') ||
-                                        Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.trim() === 'Go');
+                        const goButton = Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.trim() === 'Go');
                         if (goButton) {{
+                            console.log('Found go button, clicking...');
                             setTimeout(() => goButton.click(), 100);
+                        }} else {{
+                            console.log('Go button not found');
                         }}
+                    }} else {{
+                        console.log('Page input not found');
                     }}
                 }}
                 </script>
