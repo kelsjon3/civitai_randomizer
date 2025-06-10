@@ -2933,6 +2933,123 @@ class CivitaiRandomizerScript(scripts.Script):
         </div>
         """
 
+    def format_search_item_html(self, i, prompt_data, image_html, basic_image_info,
+                               image_metadata, content_info, core_params, advanced_params, 
+                               hires_params, extra_params, lora_info, indicators, positive_preview, 
+                               negative_preview, negative_text):
+        """Format HTML for a single search result item (no queue status)"""
+        
+        return f"""
+        <div style='margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px;
+                   background: #2a2a2a; color: #fff;'>
+            <!-- Header with indicators -->
+            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;'>
+                <strong style='color: #fff; font-size: 14px;'>Result #{i + 1}</strong>
+                <div style='display: flex; gap: 8px; align-items: center; flex-wrap: wrap;'>
+                    {' '.join(indicators)}
+                </div>
+            </div>
+            
+            <!-- Image and comprehensive metadata side by side -->
+            <div style='display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;'>
+                <div style='flex-shrink: 0;'>
+                    {image_html}
+                </div>
+                <div style='flex: 1; min-width: 300px;'>
+                    <!-- Basic Image Info -->
+                    <div style='margin-bottom: 10px; font-size: 12px; color: #bbb; line-height: 1.5;'>
+                        {' | '.join(basic_image_info) if basic_image_info else 'No basic metadata available'}
+                    </div>
+                    
+                    <!-- Image Metadata Section -->
+                    {'''
+                    <div style='margin-bottom: 10px;'>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>Image Metadata:</div>
+                        <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #3b82f6;'>
+                            ''' + (' - '.join(image_metadata)) + '''
+                        </div>
+                    </div>
+                    ''' if image_metadata else ''}
+                    
+                    <!-- Content Rating Info -->
+                    {'''
+                    <div style='margin-bottom: 10px;'>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>Content Rating:</div>
+                        <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #ef4444;'>
+                            ''' + (' - '.join(content_info)) + '''
+                        </div>
+                    </div>
+                    ''' if content_info else ''}
+                    
+                    <!-- Lora Availability Section -->
+                    {'''
+                    <div style='margin-bottom: 10px;'>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>Lora Availability:</div>
+                        <div style='background: #111827; padding: 4px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
+                            ''' + (''.join(lora_info)) + '''
+                        </div>
+                    </div>
+                    ''' if lora_info else ''}
+                    
+                    <!-- Core Generation Parameters -->
+                    {'''
+                    <div style='margin-bottom: 10px;'>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>Core Generation Settings:</div>
+                        <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #10b981;'>
+                            ''' + (' - '.join(core_params[:4])) + '''
+                            ''' + (('<br>' + ' - '.join(core_params[4:])) if len(core_params) > 4 else '') + '''
+                        </div>
+                    </div>
+                    ''' if core_params else ''}
+                    
+                    <!-- Advanced Parameters -->
+                    {'''
+                    <div style='margin-bottom: 10px;'>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>Advanced Settings:</div>
+                        <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #f59e0b;'>
+                            ''' + (' - '.join(advanced_params[:3])) + '''
+                            ''' + (('<br>' + ' - '.join(advanced_params[3:])) if len(advanced_params) > 3 else '') + '''
+                        </div>
+                    </div>
+                    ''' if advanced_params else ''}
+                    
+                    <!-- Hires/Upscaling Parameters -->
+                    {'''
+                    <div style='margin-bottom: 10px;'>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>Hires/Upscaling:</div>
+                        <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #8b5cf6;'>
+                            ''' + (' - '.join(hires_params)) + '''
+                        </div>
+                    </div>
+                    ''' if hires_params else ''}
+                    
+                    <!-- Extra/Misc Parameters -->
+                    {'''
+                    <div style='margin-bottom: 8px;'>
+                        <div style='font-size: 12px; color: #9ca3af; margin-bottom: 4px; font-weight: bold;'>Additional Parameters:</div>
+                        <div style='font-size: 11px; color: #d1d5db; line-height: 1.4; background: #111827; padding: 6px; border-radius: 4px; border-left: 3px solid #6b7280;'>
+                            ''' + (' - '.join(extra_params[:4])) + '''
+                            ''' + (('<br>' + ' - '.join(extra_params[4:8])) if len(extra_params) > 4 else '') + '''
+                            ''' + (('<br>' + ' - '.join(extra_params[8:])) if len(extra_params) > 8 else '') + '''
+                        </div>
+                    </div>
+                    ''' if extra_params else ''}
+                </div>
+            </div>
+            
+            <!-- Prompts Section -->
+            <div style='margin-bottom: 10px;'>
+                <strong style='color: #4ade80; font-size: 13px;'>Positive Prompt:</strong><br>
+                <span style='background: #1a3b1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #e6ffe6; border: 1px solid #2d5a2d; font-size: 12px;'>{positive_preview}</span>
+            </div>
+            
+            <div>
+                <strong style='color: #ff6b6b; font-size: 13px;'>Negative Prompt:</strong><br>
+                <span style='background: #3b1a1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #ffe6e6; border: 1px solid #5a2d2d; font-style: {"italic" if not negative_text else "normal"}; font-size: 12px;'>{negative_preview}</span>
+            </div>
+        </div>
+        """
+
     def _validate_api_response(self, response) -> dict:
         """Validate and parse the API response"""
         if response.status_code == 200:
@@ -3092,18 +3209,17 @@ def _create_main_controls_tab():
         'hidden_negative_prompt': hidden_negative_prompt
     }
 
-def _create_queue_tab():
-    """Create the queue tab UI components"""
-    with gr.TabItem("Prompt Queue"):
-        gr.HTML("<h3>Prompt Queue Management</h3>")
-        gr.HTML("<p>Browse and manage your fetched prompts with detailed metadata and Lora availability</p>")
+def _create_search_tab():
+    """Create the search tab UI components"""
+    with gr.TabItem("Prompt Search"):
+        gr.HTML("<h3>Prompt Search & Browse</h3>")
+        gr.HTML("<p>Search and browse prompts from Civitai with detailed metadata and Lora availability</p>")
         
-        # Queue controls
+        # Search controls
         with gr.Row():
-            refresh_queue_btn = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
+            refresh_results_btn = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
             fetch_prompts_btn = gr.Button("Fetch Prompts", variant="primary", size="sm")
-            reset_index_btn = gr.Button("Reset Index", variant="secondary", size="sm")
-            clear_queue_btn = gr.Button("Clear Queue", variant="stop", size="sm")
+            clear_results_btn = gr.Button("Clear Results", variant="stop", size="sm")
         
         # Page navigation controls
         with gr.Row():
@@ -3112,28 +3228,27 @@ def _create_queue_tab():
             next_page_btn = gr.Button("Next Page ›", variant="secondary", size="sm")
             go_to_page_btn = gr.Button("Go", variant="primary", size="sm", scale=0)
         
-        # Queue information
-        queue_info = gr.HTML("Queue: No prompts loaded")
+        # Search information
+        search_info = gr.HTML("Search: No prompts loaded")
         
-        # Queue display
+        # Search results display
         with gr.Group():
-            gr.HTML("<h4>Queue Contents</h4>")
-            queue_display = gr.HTML(
-                value="<div style='padding: 20px; text-align: center; color: #888;'>No prompts in queue. Fetch some prompts to get started!</div>",
-                elem_id="civitai_queue_display"
+            gr.HTML("<h4>Search Results</h4>")
+            search_display = gr.HTML(
+                value="<div style='padding: 20px; text-align: center; color: #888;'>No prompts found. Fetch some prompts to get started!</div>",
+                elem_id="civitai_search_display"
             )
     
     return {
-        'refresh_queue_btn': refresh_queue_btn,
+        'refresh_results_btn': refresh_results_btn,
         'fetch_prompts_btn': fetch_prompts_btn,
-        'reset_index_btn': reset_index_btn,
-        'clear_queue_btn': clear_queue_btn,
+        'clear_results_btn': clear_results_btn,
         'prev_page_btn': prev_page_btn,
         'current_page_num': current_page_num,
         'next_page_btn': next_page_btn,
         'go_to_page_btn': go_to_page_btn,
-        'queue_info': queue_info,
-        'queue_display': queue_display
+        'search_info': search_info,
+        'search_display': search_display
     }
 
 def _create_checkpoint_management_tab():
@@ -3922,26 +4037,24 @@ def _create_event_handlers():
             return error_msg, "", "", "Queue: Error", "Error loading queue"
     
     # Queue Event Handlers
-    def refresh_queue_display(page: int = 1):
-        """Refresh the queue display with pagination support"""
+    def refresh_search_display(page: int = 1):
+        """Refresh the search results display with pagination support"""
         try:
-            queue_length = len(script_instance.prompt_queue)
-            current_index = script_instance.queue_index
+            results_length = len(script_instance.prompt_queue)
             
-            if queue_length == 0:
-                queue_status = "Queue: Empty"
-                queue_display_content = "<div style='padding: 20px; text-align: center; color: #888;'>No prompts in queue. Fetch some prompts to get started!</div>"
-                return queue_status, queue_display_content
+            if results_length == 0:
+                search_status = "Search: No results"
+                search_display_content = "<div style='padding: 20px; text-align: center; color: #888;'>No prompts found. Fetch some prompts to get started!</div>"
+                return search_status, search_display_content, page, 1
             
-            remaining = queue_length - current_index
-            queue_status = f"Queue: {queue_length} total, {remaining} remaining (index: {current_index + 1})"
+            search_status = f"Search: {results_length} results found"
             
             # Pagination logic
             items_per_page = 10
-            total_pages = (queue_length + items_per_page - 1) // items_per_page  # Ceiling division
+            total_pages = (results_length + items_per_page - 1) // items_per_page  # Ceiling division
             page = max(1, min(page, total_pages))  # Clamp page to valid range
             start_index = (page - 1) * items_per_page
-            end_index = min(start_index + items_per_page, queue_length)
+            end_index = min(start_index + items_per_page, results_length)
             
             display_items = []
             
@@ -3983,7 +4096,7 @@ def _create_event_handlers():
                 display_items.append(f"""
                 <div style='padding: 15px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 6px; margin-bottom: 15px; border: 1px solid #444;'>
                     <div style='margin-bottom: 10px;'>
-                        <strong>Showing items {start_index + 1}-{end_index} of {queue_length} total</strong>
+                        <strong>Showing results {start_index + 1}-{end_index} of {results_length} total</strong>
                         <span style='margin-left: 20px; color: #888;'>Page {page} of {total_pages}</span>
                     </div>
                     <div style='margin-top: 10px; color: #888; font-size: 12px;'>
@@ -4010,9 +4123,9 @@ def _create_event_handlers():
                 positive_preview = positive_text[:200] + '...' if len(positive_text) > 200 else positive_text
                 negative_preview = negative_text[:100] + '...' if len(negative_text) > 100 else (negative_text if negative_text else "(No negative prompt)")
                 
-                # Format the complete item
-                item_html = script_instance.format_queue_item_html(
-                    i, prompt_data, current_index, image_html, basic_image_info,
+                # Format the complete item (no current_index needed for search results)
+                item_html = script_instance.format_search_item_html(
+                    i, prompt_data, image_html, basic_image_info,
                     image_metadata, content_info, core_params, advanced_params,
                     hires_params, extra_params, lora_info, indicators,
                     positive_preview, negative_preview, negative_text
@@ -4033,38 +4146,30 @@ def _create_event_handlers():
                 </div>
                 """)
             
-            queue_display_content = ''.join(display_items)
+            search_display_content = ''.join(display_items)
             
-            return queue_status, queue_display_content, page, total_pages
+            return search_status, search_display_content, page, total_pages
             
         except Exception as e:
-            print(f"[Queue Display] Error: {e}")
-            return f"Queue: Error - {str(e)}", "<div style='color: #ff6b6b;'>Error loading queue display</div>", 1, 1
+            print(f"[Search Display] Error: {e}")
+            return f"Search: Error - {str(e)}", "<div style='color: #ff6b6b;'>Error loading search results</div>", 1, 1
     
-    def clear_and_update_queue():
-        """Clear queue and update displays"""
+    def clear_search_results():
+        """Clear search results and update displays"""
         script_instance.cached_prompts = []
         script_instance.prompt_queue = []
-        script_instance.queue_index = 0
         
         cache_status = "Cache: Cleared"
-        queue_status = "Queue: Empty"
-        queue_info = "Queue: Empty"
-        queue_display = "<div style='padding: 20px; text-align: center; color: #888;'>Queue cleared!</div>"
+        search_status = "Search: No results"
+        search_info = "Search: Results cleared"
+        search_display = "<div style='padding: 20px; text-align: center; color: #888;'>Search results cleared!</div>"
         
-        return cache_status, queue_status, queue_info, queue_display, 1
-    
-    def reset_queue_index():
-        """Reset queue index to beginning"""
-        script_instance.queue_index = 0
-        queue_status = f"Queue: {len(script_instance.prompt_queue)} total, {len(script_instance.prompt_queue)} remaining (index reset)"
-        queue_status_info, queue_display, current_page, total_pages = refresh_queue_display(1)
-        return queue_status, queue_status_info, queue_display, current_page
+        return cache_status, search_status, search_info, search_display, 1
     
     def fetch_prompts_smart(nsfw_filter, keyword_filter, sort_method):
-        """Smart fetch: initial fetch if empty, fetch more if queue exists"""
+        """Smart fetch: initial fetch if empty, fetch more if results exist"""
         try:
-            # Check if queue is empty to determine fetch mode
+            # Check if results exist to determine fetch mode
             is_fetch_more = len(script_instance.prompt_queue) > 0
             
             if is_fetch_more:
@@ -4080,7 +4185,7 @@ def _create_event_handlers():
                 fetch_sort = sort_method
                 print(f"[Smart Fetch] Fetching INITIAL prompts with current filters: {fetch_nsfw}, {fetch_sort}")
             
-            # Fetch prompts - this updates the queue directly
+            # Fetch prompts - this updates the results directly
             prompts = script_instance.fetch_civitai_prompts(
                 fetch_nsfw,
                 fetch_keyword,
@@ -4089,30 +4194,30 @@ def _create_event_handlers():
                 is_fetch_more=is_fetch_more
             )
             
-            print(f"[Smart Fetch] After fetch: Queue has {len(script_instance.prompt_queue)} prompts")
+            print(f"[Smart Fetch] After fetch: Results has {len(script_instance.prompt_queue)} prompts")
             
             cache_status = f"Cache: {len(script_instance.cached_prompts)} prompts loaded"
-            queue_status = f"Queue: {len(script_instance.prompt_queue)} prompts, index: {script_instance.queue_index}"
+            search_status = f"Search: {len(script_instance.prompt_queue)} results found"
             
-            # Update queue display (page 1 for new fetches)
-            queue_status_info, queue_display, current_page, total_pages = refresh_queue_display(1)
+            # Update search display (page 1 for new fetches)
+            search_status_info, search_display, current_page, total_pages = refresh_search_display(1)
             
-            return cache_status, queue_status, "", "", queue_status_info, queue_display, current_page
+            return cache_status, search_status, "", "", search_status_info, search_display, current_page
             
         except Exception as e:
             error_msg = f"Error fetching prompts: {str(e)}"
             print(f"[Smart Fetch] Exception: {e}")
-            return error_msg, "Queue: Error", "", "", "Queue: Error", "Error loading queue", 1
+            return error_msg, "Search: Error", "", "", "Search: Error", "Error loading search results", 1
 
     def navigate_to_page(page_num, current_page):
-        """Navigate to a specific page in the queue"""
+        """Navigate to a specific page in the search results"""
         try:
             page = int(page_num) if page_num else current_page
-            queue_status_info, queue_display, new_page, total_pages = refresh_queue_display(page)
-            return queue_status_info, queue_display, new_page
+            search_status_info, search_display, new_page, total_pages = refresh_search_display(page)
+            return search_status_info, search_display, new_page
         except Exception as e:
             print(f"[Navigate] Error: {e}")
-            return "Queue: Error", "Error loading page", current_page
+            return "Search: Error", "Error loading page", current_page
 
     def go_to_previous_page(current_page):
         """Go to previous page"""
@@ -4121,9 +4226,9 @@ def _create_event_handlers():
 
     def go_to_next_page(current_page):
         """Go to next page"""
-        # Calculate max page based on current queue length
-        queue_length = len(script_instance.prompt_queue)
-        max_page = (queue_length + 9) // 10  # Ceiling division for 10 items per page
+        # Calculate max page based on current results length
+        results_length = len(script_instance.prompt_queue)
+        max_page = (results_length + 9) // 10  # Ceiling division for 10 items per page
         new_page = min(max_page, current_page + 1)
         return navigate_to_page(new_page, current_page)
     
@@ -4163,9 +4268,8 @@ def _create_event_handlers():
         'enrich_checkpoints_with_civitai': enrich_checkpoints_with_civitai,
         'fetch_new_prompts': fetch_new_prompts,
         'get_prompts_and_update_queue': get_prompts_and_update_queue,
-        'refresh_queue_display': refresh_queue_display,
-        'clear_and_update_queue': clear_and_update_queue,
-        'reset_queue_index': reset_queue_index,
+        'refresh_search_display': refresh_search_display,
+        'clear_search_results': clear_search_results,
         'fetch_prompts_smart': fetch_prompts_smart,
         'navigate_to_page': navigate_to_page,
         'go_to_previous_page': go_to_previous_page,
@@ -4188,7 +4292,7 @@ def on_ui_tabs():
         with gr.Tabs():
             # Create all five tabs
             main_controls_tab = _create_main_controls_tab()
-            queue_tab = _create_queue_tab()
+            search_tab = _create_search_tab()
             checkpoint_management_tab = _create_checkpoint_management_tab()
             lora_management_tab = _create_lora_management_tab()
             settings_tab = _create_settings_tab()
@@ -4259,46 +4363,41 @@ def on_ui_tabs():
             """
         )
         
-        # Queue Tab Event Bindings
-        queue_tab['refresh_queue_btn'].click(
-            fn=lambda page: event_handlers['refresh_queue_display'](page),
-            inputs=[queue_tab['current_page_num']],
-            outputs=[queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+        # Search Tab Event Bindings
+        search_tab['refresh_results_btn'].click(
+            fn=lambda page: event_handlers['refresh_search_display'](page),
+            inputs=[search_tab['current_page_num']],
+            outputs=[search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
-        queue_tab['fetch_prompts_btn'].click(
+        search_tab['fetch_prompts_btn'].click(
             event_handlers['fetch_prompts_smart'],
             inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
-        queue_tab['reset_index_btn'].click(
-            event_handlers['reset_queue_index'],
-            outputs=[main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
-        )
-        
-        queue_tab['clear_queue_btn'].click(
-            event_handlers['clear_and_update_queue'],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+        search_tab['clear_results_btn'].click(
+            event_handlers['clear_search_results'],
+            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
         # Page navigation bindings
-        queue_tab['prev_page_btn'].click(
+        search_tab['prev_page_btn'].click(
             event_handlers['go_to_previous_page'],
-            inputs=[queue_tab['current_page_num']],
-            outputs=[queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+            inputs=[search_tab['current_page_num']],
+            outputs=[search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
-        queue_tab['next_page_btn'].click(
+        search_tab['next_page_btn'].click(
             event_handlers['go_to_next_page'],
-            inputs=[queue_tab['current_page_num']],
-            outputs=[queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+            inputs=[search_tab['current_page_num']],
+            outputs=[search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
-        queue_tab['go_to_page_btn'].click(
+        search_tab['go_to_page_btn'].click(
             event_handlers['navigate_to_page'],
-            inputs=[queue_tab['current_page_num'], queue_tab['current_page_num']],
-            outputs=[queue_tab['queue_info'], queue_tab['queue_display'], queue_tab['current_page_num']]
+            inputs=[search_tab['current_page_num'], search_tab['current_page_num']],
+            outputs=[search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
         # Checkpoint Management Tab Event Bindings
