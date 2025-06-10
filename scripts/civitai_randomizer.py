@@ -3292,7 +3292,8 @@ def _create_search_tab():
         # Search controls
         with gr.Row():
             refresh_results_btn = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
-            fetch_prompts_btn = gr.Button("Fetch Prompts", variant="primary", size="sm")
+            fetch_prompts_btn = gr.Button("Search", variant="primary", size="sm")
+            load_more_btn = gr.Button("Load More Results", variant="secondary", size="sm")
             clear_results_btn = gr.Button("Clear Results", variant="stop", size="sm")
         
         # Page navigation controls
@@ -3323,6 +3324,7 @@ def _create_search_tab():
         'model_id_filter': model_id_filter,
         'refresh_results_btn': refresh_results_btn,
         'fetch_prompts_btn': fetch_prompts_btn,
+        'load_more_btn': load_more_btn,
         'clear_results_btn': clear_results_btn,
         'prev_page_btn': prev_page_btn,
         'current_page_num': current_page_num,
@@ -4141,51 +4143,81 @@ def _create_event_handlers():
             
             display_items = []
             
-            # Add pagination header
+            # Add pagination header with enhanced clickable page numbers
             if total_pages > 1:
-                # Create page navigation
+                # Create page navigation with JavaScript functionality
                 page_buttons = []
                 
                 # Previous button
                 if page > 1:
-                    page_buttons.append(f'<button onclick="navigate_to_page({page - 1})" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">‹ Prev</button>')
+                    page_buttons.append(f'<button onclick="civitai_navigate_to_page({page - 1})" style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;">‹ Prev</button>')
                 
-                # Page numbers
-                start_page = max(1, page - 2)
-                end_page = min(total_pages, page + 2)
+                # Page numbers - show more pages for better navigation
+                start_page = max(1, page - 3)
+                end_page = min(total_pages, page + 3)
                 
+                # First page + ellipsis if needed
                 if start_page > 1:
-                    page_buttons.append(f'<button onclick="navigate_to_page(1)" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">1</button>')
+                    page_buttons.append(f'<button onclick="civitai_navigate_to_page(1)" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;">1</button>')
                     if start_page > 2:
-                        page_buttons.append('<span style="margin: 0 5px; color: #888;">...</span>')
+                        page_buttons.append('<span style="margin: 0 5px; color: #888; font-weight: bold;">...</span>')
                 
+                # Page number buttons
                 for p in range(start_page, end_page + 1):
                     if p == page:
-                        page_buttons.append(f'<button style="padding: 5px 10px; margin: 0 2px; background: #007acc; color: white; border: 1px solid #0099ff; border-radius: 4px; font-weight: bold;">{p}</button>')
+                        page_buttons.append(f'<button style="padding: 5px 10px; margin: 0 2px; background: #007acc; color: white; border: 1px solid #0099ff; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,122,204,0.3);">{p}</button>')
                     else:
-                        page_buttons.append(f'<button onclick="navigate_to_page({p})" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">{p}</button>')
+                        page_buttons.append(f'<button onclick="civitai_navigate_to_page({p})" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background=\'#666\'" onmouseout="this.style.background=\'#555\'">{p}</button>')
                 
+                # Last page + ellipsis if needed
                 if end_page < total_pages:
                     if end_page < total_pages - 1:
-                        page_buttons.append('<span style="margin: 0 5px; color: #888;">...</span>')
-                    page_buttons.append(f'<button onclick="navigate_to_page({total_pages})" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">{total_pages}</button>')
+                        page_buttons.append('<span style="margin: 0 5px; color: #888; font-weight: bold;">...</span>')
+                    page_buttons.append(f'<button onclick="civitai_navigate_to_page({total_pages})" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background=\'#666\'" onmouseout="this.style.background=\'#555\'">{total_pages}</button>')
                 
                 # Next button
                 if page < total_pages:
-                    page_buttons.append(f'<button onclick="navigate_to_page({page + 1})" style="padding: 5px 10px; margin: 0 2px; background: #444; color: white; border: 1px solid #666; border-radius: 4px; cursor: pointer;">Next ›</button>')
+                    page_buttons.append(f'<button onclick="civitai_navigate_to_page({page + 1})" style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;">Next ›</button>')
                 
                 pagination_html = ' '.join(page_buttons)
                 
                 display_items.append(f"""
-                <div style='padding: 15px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 6px; margin-bottom: 15px; border: 1px solid #444;'>
-                    <div style='margin-bottom: 10px;'>
-                        <strong>Showing results {start_index + 1}-{end_index} of {results_length} total</strong>
-                        <span style='margin-left: 20px; color: #888;'>Page {page} of {total_pages}</span>
+                <div style='padding: 20px; text-align: center; color: #ccc; background: linear-gradient(135deg, #1a1a1a, #2a2a2a); border-radius: 8px; margin-bottom: 20px; border: 1px solid #444; box-shadow: 0 2px 8px rgba(0,0,0,0.3);'>
+                    <div style='margin-bottom: 15px;'>
+                        <div style='font-size: 16px; font-weight: bold; margin-bottom: 5px;'>
+                            <span style='color: #007acc;'>{results_length}</span> search results found
+                        </div>
+                        <div style='color: #888; font-size: 14px;'>
+                            Showing results {start_index + 1}-{end_index} • Page {page} of {total_pages}
+                        </div>
                     </div>
-                    <div style='margin-top: 10px; color: #888; font-size: 12px;'>
-                        Use the page navigation controls above to browse through all {total_pages} pages
+                    <div style='margin: 15px 0;'>
+                        {pagination_html}
+                    </div>
+                    <div style='font-size: 12px; color: #666; margin-top: 10px;'>
+                        Click page numbers to navigate or use the Previous/Next Page buttons above
                     </div>
                 </div>
+                <script>
+                function civitai_navigate_to_page(pageNum) {{
+                    // Find the page number input and set its value
+                    const pageInput = document.querySelector('label:contains("Page") input[type="number"]') || 
+                                     document.querySelector('input[type="number"][value]');
+                    if (pageInput) {{
+                        pageInput.value = pageNum;
+                        // Trigger change events
+                        pageInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+                        pageInput.dispatchEvent(new Event('change', {{bubbles: true}}));
+                        
+                        // Find and click the "Go" button
+                        const goButton = document.querySelector('button:contains("Go")') ||
+                                        Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.trim() === 'Go');
+                        if (goButton) {{
+                            setTimeout(() => goButton.click(), 100);
+                        }}
+                    }}
+                }}
+                </script>
                 """)
             
             # Generate items for current page
@@ -4216,15 +4248,15 @@ def _create_event_handlers():
                 
                 display_items.append(item_html)
             
-            # Add pagination footer if multiple pages
+            # Add pagination footer with enhanced styling
             if total_pages > 1:
                 display_items.append(f"""
-                <div style='padding: 10px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 6px; margin-top: 15px; border: 1px solid #444;'>
-                    <div style='margin-bottom: 5px; font-size: 12px; color: #888;'>
-                        Page {page} of {total_pages} - {end_index - start_index} items on this page
+                <div style='padding: 15px; text-align: center; color: #ccc; background: linear-gradient(135deg, #1a1a1a, #2a2a2a); border-radius: 8px; margin-top: 20px; border: 1px solid #444; box-shadow: 0 2px 8px rgba(0,0,0,0.3);'>
+                    <div style='margin-bottom: 8px; font-size: 14px; color: #888;'>
+                        Page <span style='color: #007acc; font-weight: bold;'>{page}</span> of <span style='color: #007acc; font-weight: bold;'>{total_pages}</span> — {end_index - start_index} items on this page
                     </div>
-                    <div style='font-size: 11px; color: #666;'>
-                        Use the Previous/Next Page buttons or enter a page number above to navigate
+                    <div style='font-size: 12px; color: #666;'>
+                        Click page numbers above or use the navigation controls to browse results
                     </div>
                 </div>
                 """)
@@ -4250,50 +4282,42 @@ def _create_event_handlers():
         return cache_status, search_status, search_info, search_display, 1
     
     def fetch_prompts_smart(nsfw_filter, keyword_filter, sort_method, period_filter, username_filter, post_id_filter, model_id_filter):
-        """Smart fetch: initial fetch if empty, fetch more if results exist"""
+        """Search function: always starts fresh with new search criteria"""
         try:
-            # Check if results exist to determine fetch mode
-            is_fetch_more = len(script_instance.prompt_queue) > 0
+            # Always start fresh for searches - clear existing results
+            print(f"[Search] Starting fresh search with filters: {nsfw_filter}, {sort_method}, keyword: '{keyword_filter}'")
             
-            if is_fetch_more:
-                # Use last saved settings for fetch more
-                fetch_nsfw = script_instance.last_nsfw_filter
-                fetch_keyword = script_instance.last_keyword_filter
-                fetch_sort = script_instance.last_sort_method
-                print(f"[Smart Fetch] Fetching MORE prompts with saved filters: {fetch_nsfw}, {fetch_sort}")
-            else:
-                # Use current filter settings from Search tab for initial fetch
-                fetch_nsfw = nsfw_filter
-                fetch_keyword = keyword_filter
-                fetch_sort = sort_method
-                print(f"[Smart Fetch] Fetching INITIAL prompts with current filters: {fetch_nsfw}, {fetch_sort}")
+            # Clear previous results
+            script_instance.cached_prompts = []
+            script_instance.prompt_queue = []
+            script_instance.queue_index = 0
             
-            # Fetch prompts - this updates the results directly
+            # Fetch prompts with current filter settings
             prompts = script_instance.fetch_civitai_prompts(
-                fetch_nsfw,
-                fetch_keyword,
-                fetch_sort,
+                nsfw_filter,
+                keyword_filter,
+                sort_method,
                 period_filter,
                 username_filter,
                 post_id_filter,
                 model_id_filter,
                 limit=100,
-                is_fetch_more=is_fetch_more
+                is_fetch_more=False  # Always fresh search
             )
             
-            print(f"[Smart Fetch] After fetch: Results has {len(script_instance.prompt_queue)} prompts")
+            print(f"[Search] Search complete: Found {len(script_instance.prompt_queue)} results")
             
             cache_status = f"Cache: {len(script_instance.cached_prompts)} prompts loaded"
             search_status = f"Search: {len(script_instance.prompt_queue)} results found"
             
-            # Update search display (page 1 for new fetches)
+            # Update search display (page 1 for new searches)
             search_status_info, search_display, current_page, total_pages = refresh_search_display(1)
             
             return cache_status, search_status, "", "", search_status_info, search_display, current_page
             
         except Exception as e:
-            error_msg = f"Error fetching prompts: {str(e)}"
-            print(f"[Smart Fetch] Exception: {e}")
+            error_msg = f"Error searching prompts: {str(e)}"
+            print(f"[Search] Exception: {e}")
             return error_msg, "Search: Error", "", "", "Search: Error", "Error loading search results", 1
 
     def navigate_to_page(page_num, current_page):
@@ -4318,6 +4342,46 @@ def _create_event_handlers():
         max_page = (results_length + 9) // 10  # Ceiling division for 10 items per page
         new_page = min(max_page, current_page + 1)
         return navigate_to_page(new_page, current_page)
+
+    def load_more_results():
+        """Load more results using the same search criteria"""
+        try:
+            if len(script_instance.prompt_queue) == 0:
+                return "Search: No initial search performed", "Please perform a search first", 1
+            
+            # Use last saved search settings to fetch more
+            print(f"[Load More] Loading more results with saved filters")
+            
+            # Fetch more prompts using saved settings
+            prompts = script_instance.fetch_civitai_prompts(
+                script_instance.last_nsfw_filter,
+                script_instance.last_keyword_filter,
+                script_instance.last_sort_method,
+                "AllTime",  # Default period
+                "",  # Default username
+                None,  # Default post_id
+                None,  # Default model_id
+                limit=100,
+                is_fetch_more=True  # Important: this preserves existing results
+            )
+            
+            print(f"[Load More] Total results now: {len(script_instance.prompt_queue)}")
+            
+            search_status = f"Search: {len(script_instance.prompt_queue)} results found"
+            
+            # Update search display (stay on current page)
+            current_results_length = len(script_instance.prompt_queue)
+            items_per_page = 10
+            total_pages = (current_results_length + items_per_page - 1) // items_per_page
+            
+            search_status_info, search_display, current_page, total_pages = refresh_search_display(total_pages)  # Go to last page to show new results
+            
+            return search_status, search_display, current_page
+            
+        except Exception as e:
+            error_msg = f"Error loading more results: {str(e)}"
+            print(f"[Load More] Exception: {e}")
+            return "Search: Error", "Error loading more results", 1
     
     # Return all handlers as a dictionary
     return {
@@ -4358,6 +4422,7 @@ def _create_event_handlers():
         'refresh_search_display': refresh_search_display,
         'clear_search_results': clear_search_results,
         'fetch_prompts_smart': fetch_prompts_smart,
+        'load_more_results': load_more_results,
         'navigate_to_page': navigate_to_page,
         'go_to_previous_page': go_to_previous_page,
         'go_to_next_page': go_to_next_page
@@ -4462,6 +4527,11 @@ def on_ui_tabs():
             inputs=[search_tab['nsfw_filter'], search_tab['keyword_filter'], search_tab['sort_method'], 
                    search_tab['period_filter'], search_tab['username_filter'], search_tab['post_id_filter'], search_tab['model_id_filter']],
             outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
+        )
+        
+        search_tab['load_more_btn'].click(
+            event_handlers['load_more_results'],
+            outputs=[search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
         search_tab['clear_results_btn'].click(
