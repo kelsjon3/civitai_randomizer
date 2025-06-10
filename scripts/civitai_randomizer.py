@@ -3101,9 +3101,9 @@ def _create_queue_tab():
         # Queue controls
         with gr.Row():
             refresh_queue_btn = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
-            fetch_prompts_btn = gr.Button("Fetch Prompts", variant="primary")
-            reset_index_btn = gr.Button("RST Reset Index", variant="secondary")
-            clear_queue_btn = gr.Button("DEL Clear Queue", variant="stop")
+            fetch_prompts_btn = gr.Button("Fetch Prompts", variant="primary", size="sm")
+            reset_index_btn = gr.Button("RST Reset Index", variant="secondary", size="sm")
+            clear_queue_btn = gr.Button("DEL Clear Queue", variant="stop", size="sm")
         
         # Queue information
         queue_info = gr.HTML("Queue: No prompts loaded")
@@ -3137,17 +3137,13 @@ def _create_checkpoint_management_tab():
             checkpoint_refresh_stats_btn = gr.Button("REF Refresh Stats", variant="secondary", size="sm")
         
         with gr.Row():
-            checkpoint_scan_db_btn = gr.Button("SEARCH Scan Checkpoints", variant="primary")
-            checkpoint_force_scan_btn = gr.Button("REF Force Rescan", variant="secondary")
-            enrich_checkpoints_btn = gr.Button("* Enrich with Civitai", variant="primary")
-            checkpoint_clear_db_btn = gr.Button("DEL Clear Database", variant="stop")
-            checkpoint_vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary")
+            checkpoint_scan_db_btn = gr.Button("SEARCH Scan Checkpoints", variant="primary", size="sm")
+            checkpoint_force_scan_btn = gr.Button("REF Force Rescan", variant="secondary", size="sm")
+            enrich_checkpoints_btn = gr.Button("* Enrich with Civitai", variant="primary", size="sm")
+            checkpoint_clear_db_btn = gr.Button("DEL Clear Database", variant="stop", size="sm")
+            checkpoint_vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary", size="sm")
         
-        with gr.Row():
-            checkpoint_backup_db_btn = gr.Button("BAK Create Backup", variant="secondary")
-            checkpoint_list_backups_btn = gr.Button("LIST List Backups", variant="secondary")
-            checkpoint_restore_backup_name = gr.Textbox(placeholder="backup_filename.db", label="Backup to Restore", scale=2)
-            checkpoint_restore_db_btn = gr.Button("RST Restore Backup", variant="secondary")
+
         
         # Search and filter controls
         gr.HTML("<h4>FIND Search & Filter</h4>")
@@ -3155,13 +3151,13 @@ def _create_checkpoint_management_tab():
             checkpoint_search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
             checkpoint_search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
             checkpoint_search_folder = gr.Textbox(placeholder="Search by folder path...", label="Folder Filter", scale=2)
-            checkpoint_search_btn = gr.Button("SEARCH Search", variant="primary", scale=1)
+            checkpoint_search_btn = gr.Button("SEARCH Search", variant="primary", size="sm", scale=1)
         
         with gr.Row():
             checkpoint_filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
             checkpoint_filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
-            checkpoint_show_all_btn = gr.Button("LIST Show All", variant="secondary")
-            checkpoint_refresh_folders_btn = gr.Button("REF Refresh Folders", variant="secondary")
+            checkpoint_show_all_btn = gr.Button("LIST Show All", variant="secondary", size="sm")
+            checkpoint_refresh_folders_btn = gr.Button("REF Refresh Folders", variant="secondary", size="sm")
         
         # Folder filter dropdown (Excel-style)
         checkpoint_folder_filter = gr.CheckboxGroup(
@@ -3184,10 +3180,6 @@ def _create_checkpoint_management_tab():
         'enrich_checkpoints_btn': enrich_checkpoints_btn,
         'checkpoint_clear_db_btn': checkpoint_clear_db_btn,
         'checkpoint_vacuum_db_btn': checkpoint_vacuum_db_btn,
-        'checkpoint_backup_db_btn': checkpoint_backup_db_btn,
-        'checkpoint_list_backups_btn': checkpoint_list_backups_btn,
-        'checkpoint_restore_backup_name': checkpoint_restore_backup_name,
-        'checkpoint_restore_db_btn': checkpoint_restore_db_btn,
         'checkpoint_search_name': checkpoint_search_name,
         'checkpoint_search_hash': checkpoint_search_hash,
         'checkpoint_search_folder': checkpoint_search_folder,
@@ -3213,17 +3205,13 @@ def _create_lora_management_tab():
             refresh_stats_btn = gr.Button("REF Refresh Stats", variant="secondary", size="sm")
         
         with gr.Row():
-            scan_db_btn = gr.Button("SEARCH Scan Loras", variant="primary")
-            force_scan_btn = gr.Button("REF Force Rescan", variant="secondary")
-            enrich_loras_btn = gr.Button("* Enrich with Civitai", variant="primary")
-            clear_db_btn = gr.Button("DEL Clear Database", variant="stop")
-            vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary")
+            scan_db_btn = gr.Button("SEARCH Scan Loras", variant="primary", size="sm")
+            force_scan_btn = gr.Button("REF Force Rescan", variant="secondary", size="sm")
+            enrich_loras_btn = gr.Button("* Enrich with Civitai", variant="primary", size="sm")
+            clear_db_btn = gr.Button("DEL Clear Database", variant="stop", size="sm")
+            vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary", size="sm")
         
-        with gr.Row():
-            backup_db_btn = gr.Button("BAK Create Backup", variant="secondary")
-            list_backups_btn = gr.Button("LIST List Backups", variant="secondary")
-            restore_backup_name = gr.Textbox(placeholder="backup_filename.db", label="Backup to Restore", scale=2)
-            restore_db_btn = gr.Button("RST Restore Backup", variant="secondary")
+
         
         # Search and filter controls
         gr.HTML("<h4>FIND Search & Filter</h4>")
@@ -3231,13 +3219,13 @@ def _create_lora_management_tab():
             search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
             search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
             search_folder = gr.Textbox(placeholder="Search by folder path...", label="Folder Filter", scale=2)
-            search_btn = gr.Button("SEARCH Search", variant="primary", scale=1)
+            search_btn = gr.Button("SEARCH Search", variant="primary", size="sm", scale=1)
         
         with gr.Row():
             filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
             filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
-            show_all_btn = gr.Button("LIST Show All", variant="secondary")
-            refresh_folders_btn = gr.Button("REF Refresh Folders", variant="secondary")
+            show_all_btn = gr.Button("LIST Show All", variant="secondary", size="sm")
+            refresh_folders_btn = gr.Button("REF Refresh Folders", variant="secondary", size="sm")
         
         # Folder filter dropdown (Excel-style)
         folder_filter = gr.CheckboxGroup(
@@ -3260,10 +3248,6 @@ def _create_lora_management_tab():
         'enrich_loras_btn': enrich_loras_btn,
         'clear_db_btn': clear_db_btn,
         'vacuum_db_btn': vacuum_db_btn,
-        'backup_db_btn': backup_db_btn,
-        'list_backups_btn': list_backups_btn,
-        'restore_backup_name': restore_backup_name,
-        'restore_db_btn': restore_db_btn,
         'search_name': search_name,
         'search_hash': search_hash,
         'search_folder': search_folder,
@@ -4229,21 +4213,7 @@ def on_ui_tabs():
             outputs=[checkpoint_management_tab['checkpoint_results_info']]
         )
         
-        checkpoint_management_tab['checkpoint_backup_db_btn'].click(
-            event_handlers['backup_database'],
-            outputs=[checkpoint_management_tab['checkpoint_results_info']]
-        )
-        
-        checkpoint_management_tab['checkpoint_list_backups_btn'].click(
-            event_handlers['list_database_backups'],
-            outputs=[checkpoint_management_tab['checkpoint_display']]
-        )
-        
-        checkpoint_management_tab['checkpoint_restore_db_btn'].click(
-            event_handlers['restore_database_from_backup'],
-            inputs=[checkpoint_management_tab['checkpoint_restore_backup_name']],
-            outputs=[checkpoint_management_tab['checkpoint_results_info']]
-        )
+
         
         checkpoint_management_tab['enrich_checkpoints_btn'].click(
             event_handlers['enrich_checkpoints_with_civitai'],
@@ -4299,21 +4269,7 @@ def on_ui_tabs():
             outputs=[lora_management_tab['results_info']]
         )
         
-        lora_management_tab['backup_db_btn'].click(
-            event_handlers['backup_database'],
-            outputs=[lora_management_tab['results_info']]
-        )
-        
-        lora_management_tab['list_backups_btn'].click(
-            event_handlers['list_database_backups'],
-            outputs=[lora_management_tab['lora_display']]
-        )
-        
-        lora_management_tab['restore_db_btn'].click(
-            event_handlers['restore_database_from_backup'],
-            inputs=[lora_management_tab['restore_backup_name']],
-            outputs=[lora_management_tab['results_info']]
-        )
+
         
         lora_management_tab['enrich_loras_btn'].click(
             event_handlers['enrich_loras_with_civitai'],
@@ -4352,6 +4308,23 @@ def on_ui_tabs():
         settings_tab['refresh_api_key_btn'].click(
             event_handlers['refresh_api_key_status'],
             outputs=[settings_tab['current_api_key']]
+        )
+        
+        # Settings Tab Backup Event Bindings
+        settings_tab['backup_db_btn'].click(
+            event_handlers['backup_database'],
+            outputs=[settings_tab['backup_status']]
+        )
+        
+        settings_tab['list_backups_btn'].click(
+            event_handlers['list_database_backups'],
+            outputs=[settings_tab['backup_display']]
+        )
+        
+        settings_tab['restore_db_btn'].click(
+            event_handlers['restore_database_from_backup'],
+            inputs=[settings_tab['restore_backup_name']],
+            outputs=[settings_tab['backup_status']]
         )
         
         # Initialize folder filter choices for Lora tab
@@ -4428,8 +4401,8 @@ def _create_settings_tab():
             
             # API Test Section
             with gr.Row():
-                test_api_btn = gr.Button("LINK Test API Connection", variant="primary")
-                refresh_api_key_btn = gr.Button("REF Refresh Key", variant="secondary")
+                test_api_btn = gr.Button("TEST Test API Connection", variant="primary", size="sm")
+                refresh_api_key_btn = gr.Button("REF Refresh Key", variant="secondary", size="sm")
             
             api_status = gr.HTML("Click 'Test API Connection' to verify your API key")
         
@@ -4440,6 +4413,22 @@ def _create_settings_tab():
             current_checkpoint_path = gr.HTML("Loading Checkpoint path...")
             
             gr.HTML("<p>To configure directory paths, go to <strong>Settings > Civitai Randomizer</strong> in the main WebUI settings.</p>")
+        
+        # Database Backup Section
+        with gr.Group():
+            gr.HTML("<h4>BAK Database Backup & Restore</h4>")
+            gr.HTML("<p>Create and restore backups of your model database (contains both Loras and Checkpoints)</p>")
+            
+            with gr.Row():
+                backup_db_btn = gr.Button("BAK Create Backup", variant="secondary", size="sm")
+                list_backups_btn = gr.Button("LIST List Backups", variant="secondary", size="sm")
+            
+            with gr.Row():
+                restore_backup_name = gr.Textbox(placeholder="backup_filename.db", label="Backup to Restore", scale=3)
+                restore_db_btn = gr.Button("RST Restore", variant="secondary", size="sm", scale=1)
+            
+            backup_status = gr.HTML("<span style='color: #888;'>Database backup management</span>")
+            backup_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #888;'>Click 'List Backups' to see available backups</div>")
     
     return {
         'current_api_key': current_api_key,
@@ -4447,7 +4436,13 @@ def _create_settings_tab():
         'refresh_api_key_btn': refresh_api_key_btn,
         'api_status': api_status,
         'current_lora_path': current_lora_path,
-        'current_checkpoint_path': current_checkpoint_path
+        'current_checkpoint_path': current_checkpoint_path,
+        'backup_db_btn': backup_db_btn,
+        'list_backups_btn': list_backups_btn,
+        'restore_backup_name': restore_backup_name,
+        'restore_db_btn': restore_db_btn,
+        'backup_status': backup_status,
+        'backup_display': backup_display
     }
 
 def on_ui_settings():
