@@ -3132,28 +3132,10 @@ def _create_main_controls_tab():
         gr.HTML("<h3>Random Prompt Generation</h3>")
         gr.HTML("<p>Fetch prompts from Civitai and manage your prompt queue</p>")
         
-        # Filter Settings Section
+        # Filter Note Section
         with gr.Group():
-            gr.HTML("<h4>Prompt Filters</h4>")
-            with gr.Row():
-                nsfw_filter = gr.Radio(
-                    choices=["Include All", "Exclude NSFW", "Only NSFW"],
-                    value="Include All",
-                    label="NSFW Filter"
-                )
-                sort_method = gr.Radio(
-                    choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
-                    value="Most Reactions",
-                    label="Sort Method"
-                )
-            
-            keyword_filter = gr.Textbox(
-                placeholder="Enter keywords (comma-separated, optional)",
-                label="Keyword Filter",
-                lines=1
-            )
-            
-            gr.HTML("<p><em>Configure your filters above, then use 'Fetch Prompts' in the Prompt Queue tab.</em></p>")
+            gr.HTML("<h4>Search Configuration</h4>")
+            gr.HTML("<p><em>Configure search filters in the <strong>Prompt Search</strong> tab, then use 'Fetch Prompts' there to load results.</em></p>")
             
             with gr.Row():
                 clear_cache_btn = gr.Button("Clear Cache", variant="secondary")
@@ -3195,9 +3177,6 @@ def _create_main_controls_tab():
             hidden_negative_prompt = gr.Textbox(elem_id="civitai_hidden_negative", label="Hidden Negative")
     
     return {
-        'nsfw_filter': nsfw_filter,
-        'sort_method': sort_method,
-        'keyword_filter': keyword_filter,
         'clear_cache_btn': clear_cache_btn,
         'custom_prompt_start': custom_prompt_start,
         'custom_prompt_end': custom_prompt_end,
@@ -3214,6 +3193,27 @@ def _create_search_tab():
     with gr.TabItem("Prompt Search"):
         gr.HTML("<h3>Prompt Search & Browse</h3>")
         gr.HTML("<p>Search and browse prompts from Civitai with detailed metadata and Lora availability</p>")
+        
+        # Filter Settings Section
+        with gr.Group():
+            gr.HTML("<h4>Search Filters</h4>")
+            with gr.Row():
+                nsfw_filter = gr.Radio(
+                    choices=["Include All", "Exclude NSFW", "Only NSFW"],
+                    value="Include All",
+                    label="NSFW Filter"
+                )
+                sort_method = gr.Radio(
+                    choices=["Most Reactions", "Most Comments", "Most Collected", "Newest"],
+                    value="Most Reactions",
+                    label="Sort Method"
+                )
+            
+            keyword_filter = gr.Textbox(
+                placeholder="Enter keywords (comma-separated, optional)",
+                label="Keyword Filter",
+                lines=1
+            )
         
         # Search controls
         with gr.Row():
@@ -3240,6 +3240,9 @@ def _create_search_tab():
             )
     
     return {
+        'nsfw_filter': nsfw_filter,
+        'sort_method': sort_method,
+        'keyword_filter': keyword_filter,
         'refresh_results_btn': refresh_results_btn,
         'fetch_prompts_btn': fetch_prompts_btn,
         'clear_results_btn': clear_results_btn,
@@ -4372,7 +4375,7 @@ def on_ui_tabs():
         
         search_tab['fetch_prompts_btn'].click(
             event_handlers['fetch_prompts_smart'],
-            inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
+            inputs=[search_tab['nsfw_filter'], search_tab['keyword_filter'], search_tab['sort_method']],
             outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
         )
         
