@@ -4233,9 +4233,9 @@ def _create_event_handlers():
                 # Create page navigation with JavaScript functionality
                 page_buttons = []
                 
-                # Previous button
+                # Previous button (visual indicator)
                 if page > 1:
-                    page_buttons.append(f'<button onclick="civitai_navigate_to_page({page - 1})" style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;">‹ Prev</button>')
+                    page_buttons.append(f'<span style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">‹ Prev</span>')
                 
                 # Page numbers - show more pages for better navigation
                 start_page = max(1, page - 3)
@@ -4243,26 +4243,26 @@ def _create_event_handlers():
                 
                 # First page + ellipsis if needed
                 if start_page > 1:
-                    page_buttons.append(f'<button onclick="civitai_navigate_to_page(1)" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;">1</button>')
+                    page_buttons.append(f'<span style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">1</span>')
                     if start_page > 2:
                         page_buttons.append('<span style="margin: 0 5px; color: #888; font-weight: bold;">...</span>')
                 
                 # Page number buttons
                 for p in range(start_page, end_page + 1):
                     if p == page:
-                        page_buttons.append(f'<button style="padding: 5px 10px; margin: 0 2px; background: #007acc; color: white; border: 1px solid #0099ff; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,122,204,0.3);">{p}</button>')
+                        page_buttons.append(f'<span style="padding: 5px 10px; margin: 0 2px; background: #007acc; color: white; border: 1px solid #0099ff; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,122,204,0.3); display: inline-block;">{p}</span>')
                     else:
-                        page_buttons.append(f'<button onclick="civitai_navigate_to_page({p})" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background=\'#666\'" onmouseout="this.style.background=\'#555\'">{p}</button>')
+                        page_buttons.append(f'<span style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">{p}</span>')
                 
                 # Last page + ellipsis if needed
                 if end_page < total_pages:
                     if end_page < total_pages - 1:
                         page_buttons.append('<span style="margin: 0 5px; color: #888; font-weight: bold;">...</span>')
-                    page_buttons.append(f'<button onclick="civitai_navigate_to_page({total_pages})" style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background=\'#666\'" onmouseout="this.style.background=\'#555\'">{total_pages}</button>')
+                    page_buttons.append(f'<span style="padding: 5px 10px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">{total_pages}</span>')
                 
-                # Next button
+                # Next button (visual indicator)
                 if page < total_pages:
-                    page_buttons.append(f'<button onclick="civitai_navigate_to_page({page + 1})" style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; cursor: pointer; transition: background 0.2s;">Next ›</button>')
+                    page_buttons.append(f'<span style="padding: 5px 12px; margin: 0 2px; background: #555; color: white; border: 1px solid #777; border-radius: 4px; display: inline-block;">Next ›</span>')
                 
                 pagination_html = ' '.join(page_buttons)
                 
@@ -4280,75 +4280,9 @@ def _create_event_handlers():
                         {pagination_html}
                     </div>
                     <div style='font-size: 12px; color: #666; margin-top: 10px;'>
-                        Click page numbers to navigate or use the Previous/Next Page buttons above
+                        Use the Previous/Next Page buttons or Page input above to navigate
                     </div>
                 </div>
-                <script>
-                function civitai_navigate_to_page(pageNum) {{
-                    console.log('Navigating to page:', pageNum);
-                    
-                    // Find the page number input by looking for inputs with specific attributes or context
-                    let pageInput = null;
-                    
-                    // Method 1: Find by looking for number inputs near "Page" text
-                    const labels = Array.from(document.querySelectorAll('label'));
-                    for (const label of labels) {{
-                        if (label.textContent.includes('Page')) {{
-                            const input = label.querySelector('input[type="number"]');
-                            if (input) {{
-                                pageInput = input;
-                                break;
-                            }}
-                        }}
-                    }}
-                    
-                    // Method 2: Find number input in the same container as Go button
-                    if (!pageInput) {{
-                        const goButtons = Array.from(document.querySelectorAll('button')).filter(btn => btn.textContent.trim() === 'Go');
-                        for (const goBtn of goButtons) {{
-                            const container = goBtn.closest('div');
-                            if (container) {{
-                                const numberInput = container.querySelector('input[type="number"]');
-                                if (numberInput) {{
-                                    pageInput = numberInput;
-                                    break;
-                                }}
-                            }}
-                        }}
-                    }}
-                    
-                    // Method 3: Fallback - find any number input that looks like a page number
-                    if (!pageInput) {{
-                        const numberInputs = document.querySelectorAll('input[type="number"]');
-                        for (const input of numberInputs) {{
-                            if (input.value && parseInt(input.value) >= 1 && parseInt(input.value) <= 100) {{
-                                pageInput = input;
-                                break;
-                            }}
-                        }}
-                    }}
-                    
-                    if (pageInput) {{
-                        console.log('Found page input:', pageInput);
-                        pageInput.value = pageNum;
-                        
-                        // Trigger change events
-                        pageInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-                        pageInput.dispatchEvent(new Event('change', {{bubbles: true}}));
-                        
-                        // Find and click the "Go" button
-                        const goButton = Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.trim() === 'Go');
-                        if (goButton) {{
-                            console.log('Found go button, clicking...');
-                            setTimeout(() => goButton.click(), 100);
-                        }} else {{
-                            console.log('Go button not found');
-                        }}
-                    }} else {{
-                        console.log('Page input not found');
-                    }}
-                }}
-                </script>
                 """)
             
             # Generate items for current page
@@ -4387,7 +4321,7 @@ def _create_event_handlers():
                         Page <span style='color: #007acc; font-weight: bold;'>{page}</span> of <span style='color: #007acc; font-weight: bold;'>{total_pages}</span> — {end_index - start_index} items on this page
                     </div>
                     <div style='font-size: 12px; color: #666;'>
-                        Click page numbers above or use the navigation controls to browse results
+                        Use the navigation controls above to browse between pages
                     </div>
                 </div>
                 """)
