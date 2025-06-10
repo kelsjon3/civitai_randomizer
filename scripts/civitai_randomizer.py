@@ -3012,12 +3012,12 @@ script_instance = None
 def _create_main_controls_tab():
     """Create the main controls tab UI components"""
     with gr.TabItem("Main Controls"):
-        gr.HTML("<h3>RAND Random Prompt Generation</h3>")
+        gr.HTML("<h3>Random Prompt Generation</h3>")
         gr.HTML("<p>Fetch prompts from Civitai and manage your prompt queue</p>")
         
         # Filter Settings Section
         with gr.Group():
-            gr.HTML("<h4>FILTER Prompt Filters</h4>")
+            gr.HTML("<h4>Prompt Filters</h4>")
             with gr.Row():
                 nsfw_filter = gr.Radio(
                     choices=["Include All", "Exclude NSFW", "Only NSFW"],
@@ -3039,11 +3039,11 @@ def _create_main_controls_tab():
             gr.HTML("<p><em>Configure your filters above, then use 'Fetch Prompts' in the Prompt Queue tab.</em></p>")
             
             with gr.Row():
-                clear_cache_btn = gr.Button("DEL Clear Cache", variant="secondary")
+                clear_cache_btn = gr.Button("Clear Cache", variant="secondary")
         
         # Custom Prompt Controls
         with gr.Group():
-            gr.HTML("<h4>EDIT Custom Prompt Settings</h4>")
+            gr.HTML("<h4>Custom Prompt Settings</h4>")
             custom_prompt_start = gr.Textbox(
                 placeholder="Text to add at the beginning of each prompt",
                 label="Custom Start Text",
@@ -3066,7 +3066,7 @@ def _create_main_controls_tab():
         with gr.Group():
             gr.HTML("<h4>- Generate Prompts</h4>")
             with gr.Row():
-                populate_btn = gr.Button("RAND Populate Prompt Fields", variant="primary", size="lg")
+                populate_btn = gr.Button("Populate Prompt Fields", variant="primary", size="lg")
             
             # Status displays
             cache_status = gr.HTML("Cache: No prompts loaded")
@@ -3095,22 +3095,22 @@ def _create_main_controls_tab():
 def _create_queue_tab():
     """Create the queue tab UI components"""
     with gr.TabItem("Prompt Queue"):
-        gr.HTML("<h3>LIST Prompt Queue Management</h3>")
+        gr.HTML("<h3>Prompt Queue Management</h3>")
         gr.HTML("<p>Browse and manage your fetched prompts with detailed metadata and Lora availability</p>")
         
         # Queue controls
         with gr.Row():
             refresh_queue_btn = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
             fetch_prompts_btn = gr.Button("Fetch Prompts", variant="primary", size="sm")
-            reset_index_btn = gr.Button("RST Reset Index", variant="secondary", size="sm")
-            clear_queue_btn = gr.Button("DEL Clear Queue", variant="stop", size="sm")
+            reset_index_btn = gr.Button("Reset Index", variant="secondary", size="sm")
+            clear_queue_btn = gr.Button("Clear Queue", variant="stop", size="sm")
         
         # Queue information
         queue_info = gr.HTML("Queue: No prompts loaded")
         
         # Queue display
         with gr.Group():
-            gr.HTML("<h4>SCROLL Queue Contents</h4>")
+            gr.HTML("<h4>Queue Contents</h4>")
             queue_display = gr.HTML(
                 value="<div style='padding: 20px; text-align: center; color: #888;'>No prompts in queue. Fetch some prompts to get started!</div>",
                 elem_id="civitai_queue_display"
@@ -3128,42 +3128,42 @@ def _create_queue_tab():
 def _create_checkpoint_management_tab():
     """Create the Checkpoint management tab UI components"""
     with gr.TabItem("Checkpoint Database"):
-        gr.HTML("<h3>- Local Checkpoint Database Management</h3>")
+        gr.HTML("<h3>Local Checkpoint Database Management</h3>")
         gr.HTML("<p>Manage and browse your local Checkpoint collection with persistent SQLite storage.</p>")
         
         # Database status and controls
         with gr.Row():
             checkpoint_db_stats = gr.HTML("Database: Not loaded")
-            checkpoint_refresh_stats_btn = gr.Button("REF Refresh Stats", variant="secondary", size="sm")
+            checkpoint_refresh_stats_btn = gr.Button("Refresh Stats", variant="secondary", size="sm")
         
         with gr.Row():
-            checkpoint_scan_db_btn = gr.Button("SEARCH Scan Checkpoints", variant="primary", size="sm")
-            checkpoint_force_scan_btn = gr.Button("REF Force Rescan", variant="secondary", size="sm")
+            checkpoint_scan_db_btn = gr.Button("Scan Checkpoints", variant="primary", size="sm")
+            checkpoint_force_scan_btn = gr.Button("Force Rescan", variant="secondary", size="sm")
             enrich_checkpoints_btn = gr.Button("* Enrich with Civitai", variant="primary", size="sm")
-            checkpoint_clear_db_btn = gr.Button("DEL Clear Database", variant="stop", size="sm")
-            checkpoint_vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary", size="sm")
+            checkpoint_clear_db_btn = gr.Button("Clear Database", variant="stop", size="sm")
+            checkpoint_vacuum_db_btn = gr.Button("Optimize DB", variant="secondary", size="sm")
         
 
         
         # Search and filter controls
-        gr.HTML("<h4>FIND Search & Filter</h4>")
+        gr.HTML("<h4>Search & Filter</h4>")
         with gr.Row():
             checkpoint_search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
             checkpoint_search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
             checkpoint_search_folder = gr.Textbox(placeholder="Search by folder path...", label="Folder Filter", scale=2)
-            checkpoint_search_btn = gr.Button("SEARCH Search", variant="primary", size="sm", scale=1)
+            checkpoint_search_btn = gr.Button("Search", variant="primary", size="sm", scale=1)
         
         with gr.Row():
             checkpoint_filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
             checkpoint_filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
-            checkpoint_show_all_btn = gr.Button("LIST Show All", variant="secondary", size="sm")
-            checkpoint_refresh_folders_btn = gr.Button("REF Refresh Folders", variant="secondary", size="sm")
+            checkpoint_show_all_btn = gr.Button("Show All", variant="secondary", size="sm")
+            checkpoint_refresh_folders_btn = gr.Button("Refresh Folders", variant="secondary", size="sm")
         
         # Folder filter dropdown (Excel-style)
         checkpoint_folder_filter = gr.CheckboxGroup(
             choices=[],
             value=[],
-            label="FOLDER Filter by Folders (uncheck to hide)",
+            label="Filter by Folders (uncheck to hide)",
             elem_id="checkpoint_folder_filter",
             interactive=True
         )
@@ -3196,42 +3196,42 @@ def _create_checkpoint_management_tab():
 def _create_lora_management_tab():
     """Create the Lora management tab UI components"""
     with gr.TabItem("Lora Database"):
-        gr.HTML("<h3>STATS Local Lora Database Management</h3>")
+        gr.HTML("<h3>Local Lora Database Management</h3>")
         gr.HTML("<p>Manage and browse your local Lora collection with persistent SQLite storage.</p>")
         
         # Database status and controls
         with gr.Row():
             db_stats = gr.HTML("Database: Not loaded")
-            refresh_stats_btn = gr.Button("REF Refresh Stats", variant="secondary", size="sm")
+            refresh_stats_btn = gr.Button("Refresh Stats", variant="secondary", size="sm")
         
         with gr.Row():
-            scan_db_btn = gr.Button("SEARCH Scan Loras", variant="primary", size="sm")
-            force_scan_btn = gr.Button("REF Force Rescan", variant="secondary", size="sm")
+            scan_db_btn = gr.Button("Scan Loras", variant="primary", size="sm")
+            force_scan_btn = gr.Button("Force Rescan", variant="secondary", size="sm")
             enrich_loras_btn = gr.Button("* Enrich with Civitai", variant="primary", size="sm")
-            clear_db_btn = gr.Button("DEL Clear Database", variant="stop", size="sm")
-            vacuum_db_btn = gr.Button("OPT Optimize DB", variant="secondary", size="sm")
+            clear_db_btn = gr.Button("Clear Database", variant="stop", size="sm")
+            vacuum_db_btn = gr.Button("Optimize DB", variant="secondary", size="sm")
         
 
         
         # Search and filter controls
-        gr.HTML("<h4>FIND Search & Filter</h4>")
+        gr.HTML("<h4>Search & Filter</h4>")
         with gr.Row():
             search_name = gr.Textbox(placeholder="Search by name...", label="Name Filter", scale=2)
             search_hash = gr.Textbox(placeholder="Search by hash...", label="Hash Filter", scale=2)
             search_folder = gr.Textbox(placeholder="Search by folder path...", label="Folder Filter", scale=2)
-            search_btn = gr.Button("SEARCH Search", variant="primary", size="sm", scale=1)
+            search_btn = gr.Button("Search", variant="primary", size="sm", scale=1)
         
         with gr.Row():
             filter_has_metadata = gr.Checkbox(label="Has Metadata", value=False)
             filter_has_hash = gr.Checkbox(label="Has Hash", value=False)
-            show_all_btn = gr.Button("LIST Show All", variant="secondary", size="sm")
-            refresh_folders_btn = gr.Button("REF Refresh Folders", variant="secondary", size="sm")
+            show_all_btn = gr.Button("Show All", variant="secondary", size="sm")
+            refresh_folders_btn = gr.Button("Refresh Folders", variant="secondary", size="sm")
         
         # Folder filter dropdown (Excel-style)
         folder_filter = gr.CheckboxGroup(
             choices=[],
             value=[],
-            label="FOLDER Filter by Folders (uncheck to hide)",
+            label="Filter by Folders (uncheck to hide)",
             elem_id="lora_folder_filter",
             interactive=True
         )
@@ -3538,7 +3538,7 @@ def _create_event_handlers():
             error_msg = f"Search error: {str(e)}"
             error_html = f"""
             <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
-                <h3>ERR Search Error</h3>
+                <h3>Search Error</h3>
                 <p>{error_msg}</p>
             </div>
             """
@@ -3586,7 +3586,7 @@ def _create_event_handlers():
                 if not folders:
                     return """
                     <div style='padding: 30px; text-align: center; color: #ccc; background: #1a1a1a; border-radius: 8px;'>
-                        <h3>FOLDER No Folders Found</h3>
+                        <h3>No Folders Found</h3>
                         <p>No Loras in database. Scan your Lora directory first.</p>
                     </div>
                     """
@@ -3599,7 +3599,7 @@ def _create_event_handlers():
                 folder_items.append(f"""
                 <div style='margin-bottom: 15px; padding: 10px; background: #1c2938; border-radius: 6px; 
                            text-align: center; color: #fff; border: 1px solid #444;'>
-                    <strong>FOLDER Folder Structure:</strong> {total_folders} folders, {total_files} files total
+                    <strong>Folder Structure:</strong> {total_folders} folders, {total_files} files total
                 </div>
                 """)
                 
@@ -3609,7 +3609,7 @@ def _create_event_handlers():
                     <div style='margin-bottom: 8px; padding: 8px 12px; border: 1px solid #444; border-radius: 6px; 
                                background: #2a2a2a; color: #fff; display: flex; justify-content: space-between; align-items: center;'>
                         <div>
-                            <span style='color: #4ade80; font-family: monospace; font-size: 13px;'>FOLDER {folder_path}</span>
+                            <span style='color: #4ade80; font-family: monospace; font-size: 13px;'>{folder_path}</span>
                         </div>
                         <div>
                             <span style='color: #ffd700; font-size: 11px; background: #333; padding: 2px 6px; border-radius: 3px;'>
@@ -3631,7 +3631,7 @@ def _create_event_handlers():
         except Exception as e:
             return f"""
             <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
-                <h3>ERR Error Loading Folders</h3>
+                <h3>Error Loading Folders</h3>
                 <p>{str(e)}</p>
             </div>
             """
@@ -3805,7 +3805,7 @@ def _create_event_handlers():
             error_msg = f"Search error: {str(e)}"
             error_html = f"""
             <div style='padding: 20px; text-align: center; color: #ff6b6b; background: #2a1a1a; border-radius: 8px;'>
-                <h3>ERR Search Error</h3>
+                <h3>Search Error</h3>
                 <p>{error_msg}</p>
             </div>
             """
@@ -4088,7 +4088,7 @@ def on_ui_tabs():
         script_instance.load_config()
     
     with gr.Blocks() as civitai_tab:
-        gr.HTML("<h2>RAND Civitai Prompt & LORA Randomizer</h2>")
+        gr.HTML("<h2>Civitai Prompt & LORA Randomizer</h2>")
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
         with gr.Tabs():
@@ -4387,12 +4387,12 @@ def on_ui_tabs():
 def _create_settings_tab():
     """Create the settings tab UI components"""
     with gr.TabItem("Settings"):
-        gr.HTML("<h3>CONF Configuration & Testing</h3>")
+        gr.HTML("<h3>Configuration & Testing</h3>")
         gr.HTML("<p>Configure your Civitai API settings and test connectivity</p>")
         
         # API Configuration Section
         with gr.Group():
-            gr.HTML("<h4>KEY API Configuration</h4>")
+            gr.HTML("<h4>API Configuration</h4>")
             
             # Display current API key setting
             current_api_key = gr.HTML("Loading API key status...")
@@ -4401,14 +4401,14 @@ def _create_settings_tab():
             
             # API Test Section
             with gr.Row():
-                test_api_btn = gr.Button("TEST Test API Connection", variant="primary", size="sm")
-                refresh_api_key_btn = gr.Button("REF Refresh Key", variant="secondary", size="sm")
+                test_api_btn = gr.Button("Test API Connection", variant="primary", size="sm")
+                refresh_api_key_btn = gr.Button("Refresh Key", variant="secondary", size="sm")
             
             api_status = gr.HTML("Click 'Test API Connection' to verify your API key")
         
         # Path Configuration Section
         with gr.Group():
-            gr.HTML("<h4>PATH Directory Paths</h4>")
+            gr.HTML("<h4>Directory Paths</h4>")
             current_lora_path = gr.HTML("Loading Lora path...")
             current_checkpoint_path = gr.HTML("Loading Checkpoint path...")
             
@@ -4416,16 +4416,16 @@ def _create_settings_tab():
         
         # Database Backup Section
         with gr.Group():
-            gr.HTML("<h4>BAK Database Backup & Restore</h4>")
+            gr.HTML("<h4>Database Backup & Restore</h4>")
             gr.HTML("<p>Create and restore backups of your model database (contains both Loras and Checkpoints)</p>")
             
             with gr.Row():
-                backup_db_btn = gr.Button("BAK Create Backup", variant="secondary", size="sm")
-                list_backups_btn = gr.Button("LIST List Backups", variant="secondary", size="sm")
+                backup_db_btn = gr.Button("Create Backup", variant="secondary", size="sm")
+                list_backups_btn = gr.Button("List Backups", variant="secondary", size="sm")
             
             with gr.Row():
                 restore_backup_name = gr.Textbox(placeholder="backup_filename.db", label="Backup to Restore", scale=3)
-                restore_db_btn = gr.Button("RST Restore", variant="secondary", size="sm", scale=1)
+                restore_db_btn = gr.Button("Restore", variant="secondary", size="sm", scale=1)
             
             backup_status = gr.HTML("<span style='color: #888;'>Database backup management</span>")
             backup_display = gr.HTML("<div style='padding: 20px; text-align: center; color: #888;'>Click 'List Backups' to see available backups</div>")
