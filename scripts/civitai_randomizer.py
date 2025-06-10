@@ -2886,9 +2886,9 @@ def _create_main_controls_tab():
         gr.HTML("<h3>RAND Random Prompt Generation</h3>")
         gr.HTML("<p>Fetch prompts from Civitai and manage your prompt queue</p>")
         
-        # Fetch Controls Section
+        # Filter Settings Section
         with gr.Group():
-            gr.HTML("<h4>FETCH Fetch Prompts from Civitai</h4>")
+            gr.HTML("<h4>FILTER Prompt Filters</h4>")
             with gr.Row():
                 nsfw_filter = gr.Radio(
                     choices=["Include All", "Exclude NSFW", "Only NSFW"],
@@ -2907,8 +2907,9 @@ def _create_main_controls_tab():
                 lines=1
             )
             
+            gr.HTML("<p><em>Configure your filters above, then use 'Fetch Prompts' in the Prompt Queue tab.</em></p>")
+            
             with gr.Row():
-                fetch_prompts_btn = gr.Button("FETCH Fetch New Prompts", variant="primary")
                 clear_cache_btn = gr.Button("DEL Clear Cache", variant="secondary")
         
         # Custom Prompt Controls
@@ -2951,7 +2952,6 @@ def _create_main_controls_tab():
         'nsfw_filter': nsfw_filter,
         'sort_method': sort_method,
         'keyword_filter': keyword_filter,
-        'fetch_prompts_btn': fetch_prompts_btn,
         'clear_cache_btn': clear_cache_btn,
         'custom_prompt_start': custom_prompt_start,
         'custom_prompt_end': custom_prompt_end,
@@ -2971,8 +2971,8 @@ def _create_queue_tab():
         
         # Queue controls
         with gr.Row():
-            refresh_queue_btn = gr.Button("REF Refresh Queue", variant="secondary")
-            fetch_more_btn = gr.Button("FETCH Fetch More", variant="primary")
+            refresh_queue_btn = gr.Button("🔄", variant="secondary", size="sm")
+            fetch_prompts_btn = gr.Button("FETCH Fetch Prompts", variant="primary")
             reset_index_btn = gr.Button("RST Reset Index", variant="secondary")
             clear_queue_btn = gr.Button("DEL Clear Queue", variant="stop")
         
@@ -2989,7 +2989,7 @@ def _create_queue_tab():
     
     return {
         'refresh_queue_btn': refresh_queue_btn,
-        'fetch_more_btn': fetch_more_btn,
+        'fetch_prompts_btn': fetch_prompts_btn,
         'reset_index_btn': reset_index_btn,
         'clear_queue_btn': clear_queue_btn,
         'queue_info': queue_info,
@@ -3793,15 +3793,31 @@ def _create_event_handlers():
         queue_status_info, queue_display = refresh_queue_display()
         return queue_status, queue_status_info, queue_display
     
-    def fetch_more_from_queue():
-        """Fetch more prompts using last settings"""
+    def fetch_prompts_smart(nsfw_filter, keyword_filter, sort_method):
+        """Smart fetch: initial fetch if empty, fetch more if queue exists"""
         try:
+            # Check if queue is empty to determine fetch mode
+            is_fetch_more = len(script_instance.prompt_queue) > 0
+            
+            if is_fetch_more:
+                # Use last saved settings for fetch more
+                fetch_nsfw = script_instance.last_nsfw_filter
+                fetch_keyword = script_instance.last_keyword_filter
+                fetch_sort = script_instance.last_sort_method
+                print(f"[Smart Fetch] Fetching MORE prompts with saved filters: {fetch_nsfw}, {fetch_sort}")
+            else:
+                # Use current filter settings from Main Controls for initial fetch
+                fetch_nsfw = nsfw_filter
+                fetch_keyword = keyword_filter
+                fetch_sort = sort_method
+                print(f"[Smart Fetch] Fetching INITIAL prompts with current filters: {fetch_nsfw}, {fetch_sort}")
+            
             prompts = script_instance.fetch_civitai_prompts(
-                script_instance.last_nsfw_filter,
-                script_instance.last_keyword_filter,
-                script_instance.last_sort_method,
+                fetch_nsfw,
+                fetch_keyword,
+                fetch_sort,
                 limit=100,
-                is_fetch_more=True
+                is_fetch_more=is_fetch_more
             )
             
             cache_status = f"Cache: {len(script_instance.cached_prompts)} prompts loaded"
@@ -3813,7 +3829,7 @@ def _create_event_handlers():
             return cache_status, queue_status, "", "", queue_status_info, queue_display
             
         except Exception as e:
-            error_msg = f"Error fetching more: {str(e)}"
+            error_msg = f"Error fetching prompts: {str(e)}"
             return error_msg, "Queue: Error", "", "", "Queue: Error", "Error loading queue"
     
     # Return all handlers as a dictionary
@@ -3852,7 +3868,7 @@ def _create_event_handlers():
         'refresh_queue_display': refresh_queue_display,
         'clear_and_update_queue': clear_and_update_queue,
         'reset_queue_index': reset_queue_index,
-        'fetch_more_from_queue': fetch_more_from_queue
+        'fetch_prompts_smart': fetch_prompts_smart
     }
 
 def on_ui_tabs():
@@ -3879,13 +3895,7 @@ def on_ui_tabs():
         # Event handlers
         event_handlers = _create_event_handlers()
         
-        # Main Controls Tab Event Bindings
-        main_controls_tab['fetch_prompts_btn'].click(
-            event_handlers['fetch_new_prompts'],
-            inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
-            outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt']]
-        )
-        
+        # Main Controls Tab Event Bindings        
         main_controls_tab['clear_cache_btn'].click(
             event_handlers['clear_prompt_cache'],
             outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status']]
@@ -3954,8 +3964,9 @@ def on_ui_tabs():
             outputs=[queue_tab['queue_info'], queue_tab['queue_display']]
         )
         
-        queue_tab['fetch_more_btn'].click(
-            event_handlers['fetch_more_from_queue'],
+        queue_tab['fetch_prompts_btn'].click(
+            event_handlers['fetch_prompts_smart'],
+            inputs=[main_controls_tab['nsfw_filter'], main_controls_tab['keyword_filter'], main_controls_tab['sort_method']],
             outputs=[main_controls_tab['cache_status'], main_controls_tab['prompt_queue_status'], main_controls_tab['hidden_positive_prompt'], main_controls_tab['hidden_negative_prompt'], queue_tab['queue_info'], queue_tab['queue_display']]
         )
         
