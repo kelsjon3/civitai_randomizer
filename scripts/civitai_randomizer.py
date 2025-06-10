@@ -1749,7 +1749,7 @@ class CivitaiRandomizerScript(scripts.Script):
                         ''' if civitai_tags else ""}
                     </div>
                 </div>
-                ''' if has_civitai else ''}
+                ''' if has_civitai else ""}
                 
                 <!-- File info -->
                 <div style='font-size: 11px; color: #bbb; margin-bottom: 8px;'>
@@ -2295,7 +2295,7 @@ class CivitaiRandomizerScript(scripts.Script):
                         ''' if civitai_tags else ""}
                     </div>
                 </div>
-                ''' if has_civitai else ''}
+                ''' if has_civitai else ""}
                 
                 <!-- File info -->
                 <div style='font-size: 11px; color: #bbb; margin-bottom: 8px;'>
