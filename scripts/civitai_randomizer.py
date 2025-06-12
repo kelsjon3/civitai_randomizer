@@ -374,15 +374,21 @@ class CivitaiRandomizerScript(scripts.Script):
     def stablequeue_output(self, prompt_index: str) -> str:
         """Handle StableQueue request from JavaScript - extract prompt data and send to StableQueue"""
         try:
-            # Parse the prompt index from JavaScript input
-            clean_index = prompt_index[4:]  # Remove the padding
+            # Parse the prompt index from JavaScript input (same pattern as working extension)
+            clean_index = prompt_index[4:]  # Remove the padding number prefix
             index = int(clean_index)
+            print(f"[CivitAI Randomizer StableQueue] Processing index: {index}")
+            
+            # Get the prompt data from prompt_queue (same as search display uses)
+            if not hasattr(self, 'prompt_queue') or not self.prompt_queue:
+                return "No search results available. Please fetch prompts first."
             
             if 0 <= index < len(self.prompt_queue):
                 prompt_data = self.prompt_queue[index]
+                print(f"[CivitAI Randomizer StableQueue] Found prompt data for index {index}")
                 return self.send_to_stablequeue(prompt_data)
             else:
-                return "Invalid prompt index"
+                return f"Invalid prompt index {index}. Available prompts: 0-{len(self.prompt_queue)-1}"
                 
         except Exception as e:
             error_msg = f"Error processing StableQueue request: {str(e)}"
@@ -3535,9 +3541,6 @@ def _create_search_tab():
         # Search information
         search_info = gr.HTML("Search: No prompts loaded")
         
-        # Hidden input for StableQueue communication
-        civitai_stablequeue_input = gr.Textbox(elem_id="civitai_stablequeue_input", visible=False)
-        
         # Search results display
         with gr.Group():
             gr.HTML("<h4>Search Results</h4>")
@@ -3563,8 +3566,7 @@ def _create_search_tab():
         'next_page_btn': next_page_btn,
         'go_to_page_btn': go_to_page_btn,
         'search_info': search_info,
-        'search_display': search_display,
-        'civitai_stablequeue_input': civitai_stablequeue_input
+        'search_display': search_display
     }
 
 def _create_checkpoint_management_tab():
@@ -4652,6 +4654,9 @@ def on_ui_tabs():
         gr.HTML("<h2>Civitai Prompt & LORA Randomizer</h2>")
         gr.HTML("<p>Automatically fetch random prompts from Civitai and randomize LORAs for endless creative generation</p>")
         
+        # Hidden input for StableQueue communication (at main UI level like working extension)
+        civitai_stablequeue_input = gr.Textbox(elem_id="civitai_stablequeue_input", visible=False)
+        
         with gr.Tabs():
             # Create all five tabs
             main_controls_tab = _create_main_controls_tab()
@@ -4770,9 +4775,9 @@ def on_ui_tabs():
         )
         
         # StableQueue event binding
-        search_tab['civitai_stablequeue_input'].change(
+        civitai_stablequeue_input.change(
             fn=event_handlers['stablequeue_output'],
-            inputs=search_tab['civitai_stablequeue_input']
+            inputs=civitai_stablequeue_input
         )
         
         # Checkpoint Management Tab Event Bindings
