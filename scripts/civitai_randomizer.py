@@ -281,7 +281,7 @@ class CivitaiRandomizerScript(scripts.Script):
             positive_prompt = prompt_data.get('positive', '')
             negative_prompt = prompt_data.get('negative', '')
             
-            # Extract generation parameters from meta
+            # Extract generation parameters from both direct fields and meta
             meta = prompt_data.get('meta', {})
             
             # Build a generation info string similar to what Forge would output
@@ -292,36 +292,93 @@ class CivitaiRandomizerScript(scripts.Script):
             if negative_prompt:
                 geninfo_parts.append(f"Negative prompt: {negative_prompt}")
             
-            # Add meta parameters if available
-            meta_params = []
-            for key, value in meta.items():
-                if key in ['prompt', 'negativePrompt']:
-                    continue  # Skip prompt fields as they're already added
-                if value is not None and str(value).strip():
-                    if key == 'steps':
-                        meta_params.append(f"Steps: {value}")
-                    elif key == 'cfgScale':
-                        meta_params.append(f"CFG scale: {value}")
-                    elif key == 'seed':
-                        meta_params.append(f"Seed: {value}")
-                    elif key == 'sampler':
-                        meta_params.append(f"Sampler: {value}")
-                    elif key == 'model':
-                        meta_params.append(f"Model: {value}")
-                    elif key == 'size':
-                        if 'x' in str(value):
-                            meta_params.append(f"Size: {value}")
-                    elif key == 'clipSkip':
-                        meta_params.append(f"Clip skip: {value}")
-                    else:
-                        # Add other parameters with their original key names
-                        meta_params.append(f"{key}: {value}")
+            # Add generation parameters in standard order
+            param_parts = []
             
-            if meta_params:
-                geninfo_parts.append(", ".join(meta_params))
+            # Use direct fields first, then fall back to meta
+            steps = prompt_data.get('steps') or meta.get('steps') or meta.get('Steps')
+            if steps:
+                param_parts.append(f"Steps: {steps}")
+                
+            sampler = prompt_data.get('sampler') or meta.get('sampler') or meta.get('Sampler')
+            if sampler:
+                param_parts.append(f"Sampler: {sampler}")
+                
+            cfg_scale = prompt_data.get('cfg_scale') or meta.get('cfgScale') or meta.get('CFG scale') or meta.get('cfgScale')
+            if cfg_scale:
+                param_parts.append(f"CFG scale: {cfg_scale}")
+                
+            seed = prompt_data.get('seed') or meta.get('seed') or meta.get('Seed')
+            if seed and str(seed) != '-1':
+                param_parts.append(f"Seed: {seed}")
+            
+            # Size from width/height or meta
+            width = prompt_data.get('image_width', 0)
+            height = prompt_data.get('image_height', 0)
+            size = meta.get('Size') or meta.get('size')
+            if width and height:
+                param_parts.append(f"Size: {width}x{height}")
+            elif size:
+                param_parts.append(f"Size: {size}")
+                
+            # Model information
+            model_name = prompt_data.get('model_name') or meta.get('Model') or meta.get('model')
+            if model_name:
+                param_parts.append(f"Model: {model_name}")
+                
+            model_hash = prompt_data.get('model_hash') or meta.get('Model hash') or meta.get('modelHash')
+            if model_hash:
+                param_parts.append(f"Model hash: {model_hash}")
+            
+            # Other common parameters
+            clip_skip = prompt_data.get('clip_skip') or meta.get('Clip skip') or meta.get('clipSkip')
+            if clip_skip:
+                param_parts.append(f"Clip skip: {clip_skip}")
+                
+            # Hires parameters
+            hires_upscaler = prompt_data.get('hires_upscaler') or meta.get('Hires upscaler')
+            if hires_upscaler:
+                param_parts.append(f"Hires upscaler: {hires_upscaler}")
+                
+            hires_steps = prompt_data.get('hires_steps') or meta.get('Hires steps')
+            if hires_steps:
+                param_parts.append(f"Hires steps: {hires_steps}")
+                
+            hires_upscale = prompt_data.get('hires_upscale') or meta.get('Hires upscale')
+            if hires_upscale:
+                param_parts.append(f"Hires upscale: {hires_upscale}")
+                
+            denoising_strength = prompt_data.get('denoising_strength') or meta.get('Denoising strength')
+            if denoising_strength:
+                param_parts.append(f"Denoising strength: {denoising_strength}")
+            
+            # VAE
+            vae = prompt_data.get('vae') or meta.get('VAE')
+            if vae:
+                param_parts.append(f"VAE: {vae}")
+            
+            # Add other meta parameters we haven't covered
+            for key, value in meta.items():
+                if key in ['prompt', 'negativePrompt', 'steps', 'Steps', 'sampler', 'Sampler', 
+                          'cfgScale', 'CFG scale', 'seed', 'Seed', 'Size', 'size', 'Model', 
+                          'model', 'Model hash', 'modelHash', 'Clip skip', 'clipSkip', 
+                          'Hires upscaler', 'Hires steps', 'Hires upscale', 'Denoising strength', 'VAE']:
+                    continue  # Skip already processed parameters
+                if value is not None and str(value).strip():
+                    param_parts.append(f"{key}: {value}")
+            
+            if param_parts:
+                geninfo_parts.append(", ".join(param_parts))
             
             # Join all parts to create the complete generation info string
             geninfo = ", ".join(geninfo_parts)
+            
+            # Debug: Print the prompt_data structure
+            print(f"[CivitAI Randomizer StableQueue] DEBUG: prompt_data keys: {list(prompt_data.keys())}")
+            print(f"[CivitAI Randomizer StableQueue] DEBUG: positive_prompt: '{positive_prompt}'")
+            print(f"[CivitAI Randomizer StableQueue] DEBUG: negative_prompt: '{negative_prompt}'")
+            print(f"[CivitAI Randomizer StableQueue] DEBUG: meta keys: {list(meta.keys()) if meta else 'None'}")
+            print(f"[CivitAI Randomizer StableQueue] DEBUG: geninfo: '{geninfo}'")
             
             # Validate generation info
             if not geninfo or not geninfo.strip():
