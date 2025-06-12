@@ -255,6 +255,140 @@ class CivitaiRandomizerScript(scripts.Script):
         except Exception as e:
             return f"<span style='color: red;'>X Unexpected error: {str(e)}</span>"
 
+    def send_to_stablequeue(self, prompt_data: Dict[str, Any]) -> str:
+        """Send prompt data to StableQueue API"""
+        try:
+            import modules.shared as shared
+            
+            # Get StableQueue settings from configuration
+            stablequeue_base_url = getattr(shared.opts, "stablequeue_url", "http://192.168.73.124:8083")
+            api_key = getattr(shared.opts, "stablequeue_api_key", "")
+            api_secret = getattr(shared.opts, "stablequeue_api_secret", "")
+            default_server = getattr(shared.opts, "stablequeue_default_server", "ArchLinux")
+            
+            # Validate required settings
+            if not stablequeue_base_url:
+                error_msg = "StableQueue URL not configured. Please set it in Settings > CivitAI Randomizer"
+                print(f"[CivitAI Randomizer StableQueue] {error_msg}")
+                return error_msg
+                
+            if not api_key or not api_secret:
+                error_msg = "StableQueue API credentials not configured. Please set them in Settings > CivitAI Randomizer"
+                print(f"[CivitAI Randomizer StableQueue] {error_msg}")
+                return error_msg
+            
+            # Create generation info string from prompt_data
+            positive_prompt = prompt_data.get('positive', '')
+            negative_prompt = prompt_data.get('negative', '')
+            
+            # Extract generation parameters from meta
+            meta = prompt_data.get('meta', {})
+            
+            # Build a generation info string similar to what Forge would output
+            geninfo_parts = []
+            if positive_prompt:
+                geninfo_parts.append(positive_prompt)
+            
+            if negative_prompt:
+                geninfo_parts.append(f"Negative prompt: {negative_prompt}")
+            
+            # Add meta parameters if available
+            meta_params = []
+            for key, value in meta.items():
+                if key in ['prompt', 'negativePrompt']:
+                    continue  # Skip prompt fields as they're already added
+                if value is not None and str(value).strip():
+                    if key == 'steps':
+                        meta_params.append(f"Steps: {value}")
+                    elif key == 'cfgScale':
+                        meta_params.append(f"CFG scale: {value}")
+                    elif key == 'seed':
+                        meta_params.append(f"Seed: {value}")
+                    elif key == 'sampler':
+                        meta_params.append(f"Sampler: {value}")
+                    elif key == 'model':
+                        meta_params.append(f"Model: {value}")
+                    elif key == 'size':
+                        if 'x' in str(value):
+                            meta_params.append(f"Size: {value}")
+                    elif key == 'clipSkip':
+                        meta_params.append(f"Clip skip: {value}")
+                    else:
+                        # Add other parameters with their original key names
+                        meta_params.append(f"{key}: {value}")
+            
+            if meta_params:
+                geninfo_parts.append(", ".join(meta_params))
+            
+            # Join all parts to create the complete generation info string
+            geninfo = ", ".join(geninfo_parts)
+            
+            # Validate generation info
+            if not geninfo or not geninfo.strip():
+                print("[CivitAI Randomizer StableQueue] No generation info to send")
+                return "No generation info available to send"
+            
+            print(f"[CivitAI Randomizer StableQueue] Sending generation info: {geninfo[:200]}...")
+            
+            # Build the StableQueue API endpoint URL
+            stablequeue_url = f"{stablequeue_base_url.rstrip('/')}/api/v2/generate"
+            
+            # Prepare payload for StableQueue v2 API with complete generation info
+            stablequeue_payload = {
+                "app_type": "forge",
+                "target_server_alias": default_server,
+                "source_info": "civitai_randomizer",
+                "generation_info_raw": geninfo.strip()  # Send complete generation info string
+            }
+            
+            print(f"[CivitAI Randomizer StableQueue] Sending payload to {stablequeue_url}")
+            
+            # Send to StableQueue with API authentication
+            headers = {
+                'Content-Type': 'application/json',
+                'X-API-Key': api_key,
+                'X-API-Secret': api_secret
+            }
+            
+            response = requests.post(
+                stablequeue_url,
+                json=stablequeue_payload,
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                print(f"[CivitAI Randomizer StableQueue] Successfully queued job: {result}")
+                return f"Successfully queued in StableQueue! Job ID: {result.get('job_id', 'Unknown')}"
+            else:
+                error_msg = f"StableQueue API error: {response.status_code} - {response.text}"
+                print(f"[CivitAI Randomizer StableQueue] {error_msg}")
+                return error_msg
+                
+        except Exception as e:
+            error_msg = f"Error sending to StableQueue: {str(e)}"
+            print(f"[CivitAI Randomizer StableQueue] {error_msg}")
+            return error_msg
+
+    def stablequeue_output(self, prompt_index: str) -> str:
+        """Handle StableQueue request from JavaScript - extract prompt data and send to StableQueue"""
+        try:
+            # Parse the prompt index from JavaScript input
+            clean_index = prompt_index[4:]  # Remove the padding
+            index = int(clean_index)
+            
+            if 0 <= index < len(self.prompt_queue):
+                prompt_data = self.prompt_queue[index]
+                return self.send_to_stablequeue(prompt_data)
+            else:
+                return "Invalid prompt index"
+                
+        except Exception as e:
+            error_msg = f"Error processing StableQueue request: {str(e)}"
+            print(f"[CivitAI Randomizer StableQueue] {error_msg}")
+            return error_msg
+
     def _setup_api_request(self, nsfw_filter: str, sort_method: str, limit: int, 
                           period_filter: str = "AllTime", username_filter: str = "", 
                           post_id_filter: int = None, model_id_filter: int = None, 
@@ -3129,6 +3263,16 @@ class CivitaiRandomizerScript(scripts.Script):
                 <strong style='color: #ff6b6b; font-size: 13px;'>Negative Prompt:</strong><br>
                 <span style='background: #3b1a1a; padding: 8px; border-radius: 4px; display: block; margin-top: 4px; line-height: 1.4; color: #ffe6e6; border: 1px solid #5a2d2d; font-style: {"italic" if not negative_text else "normal"}; font-size: 12px;'>{negative_preview}</span>
             </div>
+            
+            <!-- Send to StableQueue Button -->
+            <div style='margin-top: 15px; text-align: right;'>
+                <button onclick='sendToStableQueue({i})' 
+                        style='background-color: #2563eb; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; transition: background-color 0.2s;'
+                        onmouseover='this.style.backgroundColor="#1d4ed8"'
+                        onmouseout='this.style.backgroundColor="#2563eb"'>
+                    📤 Send to StableQueue
+                </button>
+            </div>
         </div>
         """
 
@@ -3391,6 +3535,9 @@ def _create_search_tab():
         # Search information
         search_info = gr.HTML("Search: No prompts loaded")
         
+        # Hidden input for StableQueue communication
+        civitai_stablequeue_input = gr.Textbox(elem_id="civitai_stablequeue_input", visible=False)
+        
         # Search results display
         with gr.Group():
             gr.HTML("<h4>Search Results</h4>")
@@ -3416,7 +3563,8 @@ def _create_search_tab():
         'next_page_btn': next_page_btn,
         'go_to_page_btn': go_to_page_btn,
         'search_info': search_info,
-        'search_display': search_display
+        'search_display': search_display,
+        'civitai_stablequeue_input': civitai_stablequeue_input
     }
 
 def _create_checkpoint_management_tab():
@@ -4377,6 +4525,11 @@ def _create_event_handlers():
             print(f"[Search] Exception: {e}")
             return error_msg, "Search: Error", "", "", "Search: Error", "Error loading search results", 1
 
+    # StableQueue Event Handler
+    def stablequeue_output(prompt_index):
+        """Handle StableQueue request from JavaScript"""
+        return script_instance.stablequeue_output(prompt_index)
+
     def navigate_to_page(page_num, current_page):
         """Navigate to a specific page in the search results"""
         try:
@@ -4482,7 +4635,8 @@ def _create_event_handlers():
         'load_more_results': load_more_results,
         'navigate_to_page': navigate_to_page,
         'go_to_previous_page': go_to_previous_page,
-        'go_to_next_page': go_to_next_page
+        'go_to_next_page': go_to_next_page,
+        'stablequeue_output': stablequeue_output
     }
 
 def on_ui_tabs():
@@ -4613,6 +4767,12 @@ def on_ui_tabs():
             event_handlers['navigate_to_page'],
             inputs=[search_tab['current_page_num'], search_tab['current_page_num']],
             outputs=[search_tab['search_info'], search_tab['search_display'], search_tab['current_page_num']]
+        )
+        
+        # StableQueue event binding
+        search_tab['civitai_stablequeue_input'].change(
+            fn=event_handlers['stablequeue_output'],
+            inputs=search_tab['civitai_stablequeue_input']
         )
         
         # Checkpoint Management Tab Event Bindings
@@ -4910,6 +5070,51 @@ def on_ui_settings():
             {"placeholder": "/path/to/your/checkpoint/folder"},
             section=section
         )
+    )
+    
+    # StableQueue Integration Settings
+    shared.opts.add_option(
+        "stablequeue_url",
+        shared.OptionInfo(
+            "http://192.168.73.124:8083",
+            "StableQueue Server URL",
+            gr.Textbox,
+            {"placeholder": "http://your-stablequeue-server:8083"},
+            section=section
+        ).info("URL of your StableQueue server")
+    )
+    
+    shared.opts.add_option(
+        "stablequeue_api_key",
+        shared.OptionInfo(
+            "",
+            "StableQueue API Key",
+            gr.Textbox,
+            {"type": "password", "placeholder": "Enter your StableQueue API key"},
+            section=section
+        ).info("API key from your StableQueue instance")
+    )
+    
+    shared.opts.add_option(
+        "stablequeue_api_secret",
+        shared.OptionInfo(
+            "",
+            "StableQueue API Secret",
+            gr.Textbox,
+            {"type": "password", "placeholder": "Enter your StableQueue API secret"},
+            section=section
+        ).info("API secret from your StableQueue instance")
+    )
+    
+    shared.opts.add_option(
+        "stablequeue_default_server",
+        shared.OptionInfo(
+            "ArchLinux",
+            "StableQueue Default Server",
+            gr.Textbox,
+            {"placeholder": "ArchLinux"},
+            section=section
+        ).info("Default server alias to send jobs to (configure servers in StableQueue web UI)")
     )
 
 script_callbacks.on_ui_tabs(on_ui_tabs)
