@@ -373,12 +373,6 @@ class CivitaiRandomizerScript(scripts.Script):
             # Join all parts to create the complete generation info string
             geninfo = ", ".join(geninfo_parts)
             
-            # Debug: Print the prompt_data structure
-            print(f"[CivitAI Randomizer StableQueue] DEBUG: prompt_data keys: {list(prompt_data.keys())}")
-            print(f"[CivitAI Randomizer StableQueue] DEBUG: positive_prompt: '{positive_prompt}'")
-            print(f"[CivitAI Randomizer StableQueue] DEBUG: negative_prompt: '{negative_prompt}'")
-            print(f"[CivitAI Randomizer StableQueue] DEBUG: meta keys: {list(meta.keys()) if meta else 'None'}")
-            print(f"[CivitAI Randomizer StableQueue] DEBUG: geninfo: '{geninfo}'")
             
             # Validate generation info
             if not geninfo or not geninfo.strip():
@@ -414,10 +408,12 @@ class CivitaiRandomizerScript(scripts.Script):
                 timeout=10
             )
             
-            if response.status_code == 200:
+            if response.status_code in [200, 202]:  # StableQueue v2 API returns 202 for successful job submission
                 result = response.json()
                 print(f"[CivitAI Randomizer StableQueue] Successfully queued job: {result}")
-                return f"Successfully queued in StableQueue! Job ID: {result.get('job_id', 'Unknown')}"
+                job_id = result.get('mobilesd_job_id') or result.get('job_id', 'Unknown')
+                queue_position = result.get('queue_position', 'Unknown')
+                return f"✅ Successfully queued in StableQueue! Job ID: {job_id}, Queue Position: {queue_position}"
             else:
                 error_msg = f"StableQueue API error: {response.status_code} - {response.text}"
                 print(f"[CivitAI Randomizer StableQueue] {error_msg}")
